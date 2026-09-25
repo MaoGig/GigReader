@@ -43,7 +43,10 @@ internal fun Context.libraryMessageText(message: LibraryMessage): String {
         is LibraryMessage.ImportFailed -> getString(importErrorText(message.error), message.name)
         is LibraryMessage.ImportFailedMany ->
             res.getQuantityString(R.plurals.library_msg_failed_many, message.count, message.count)
-        is LibraryMessage.Restored -> getString(R.string.library_msg_restored, message.title)
+        is LibraryMessage.Restored -> getString(
+            R.string.library_msg_restored,
+            message.title.ifBlank { getString(R.string.library_untitled_note) },
+        )
         LibraryMessage.DeletedForever -> getString(R.string.library_msg_deleted_forever)
         LibraryMessage.TrashEmptied -> getString(R.string.library_msg_trash_emptied)
     }

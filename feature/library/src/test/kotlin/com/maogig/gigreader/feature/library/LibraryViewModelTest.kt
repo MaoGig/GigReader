@@ -252,6 +252,26 @@ class LibraryViewModelTest {
         library.setContents(null, FolderContents(emptyList(), listOf(doc("d2")), emptyList()))
         advanceUntilIdle()
         assertFalse(vm.uiState.value.selectionMode)
+        // Taps open items again instead of toggling a selection the user cannot see.
+        assertFalse(vm.inSelectionMode)
+    }
+
+    @Test
+    fun hiddenSelectionNeverTakesPartInBulkActions() = runTest(dispatcher) {
+        library.setContents(null, FolderContents(emptyList(), listOf(doc("d1")), listOf(note("n1"))))
+        val vm = viewModel()
+        advanceUntilIdle()
+        vm.onLongPress(ItemRef("d1", ItemKind.DOCUMENT))
+        advanceUntilIdle()
+
+        vm.setFilter(LibraryFilter.NOTES)
+        advanceUntilIdle()
+        assertFalse(vm.inSelectionMode)
+
+        vm.onLongPress(ItemRef("n1", ItemKind.NOTE))
+        vm.trashSelection()
+        advanceUntilIdle()
+        assertEquals(listOf(listOf(ItemRef("n1", ItemKind.NOTE))), library.trashed)
     }
 
     @Test

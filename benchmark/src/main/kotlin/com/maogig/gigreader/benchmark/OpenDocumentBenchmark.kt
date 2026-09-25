@@ -38,6 +38,7 @@ class OpenDocumentBenchmark {
                 // targetPackageOnly = false: the section is async (process track), and the name is
                 // unique to GigReader anyway.
                 TraceSectionMetric(SECTION_OPEN_DOCUMENT, TraceSectionMetric.Mode.First, targetPackageOnly = false),
+                TraceSectionMetric(SECTION_FIRST_PAGE, TraceSectionMetric.Mode.First, targetPackageOnly = false),
                 FrameTimingMetric(),
             ),
             iterations = OPEN_CLOSE_ITERATIONS,

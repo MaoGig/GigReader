@@ -25,6 +25,7 @@ const val TAG_READER_BACK = "reader_back"
 
 // Trace sections emitted by the app (core/pdf PerfTrace, async sections on API 29+).
 const val SECTION_OPEN_DOCUMENT = "GigReader.openDocument"
+const val SECTION_FIRST_PAGE = "GigReader.firstPageRendered"
 const val SECTION_CLOSE_DOCUMENT = "GigReader.closeDocument"
 const val SECTION_RENDER_PAGE = "GigReader.renderPage"
 
@@ -134,11 +135,23 @@ fun MacrobenchmarkScope.startAtLibrary(): UiObject2 {
     return list
 }
 
-/** Leaves the reader with its own back button (or system Back when the chrome is hidden). */
+/**
+ * Leaves the reader with its own back button. System Back is not a substitute: a reader opened
+ * through the benchmark hook is alone on the back stack (GigReaderApp resets to it), so Back would
+ * leave the app instead of returning to the library. If the chrome is hidden, one tap on the page
+ * (which toggles it) brings the button back.
+ */
 fun MacrobenchmarkScope.closeReader() {
-    val back = device.findObject(By.res(TAG_READER_BACK))
-    if (back != null) back.click() else device.pressBack()
+    val back = device.findObject(By.res(TAG_READER_BACK)) ?: revealReaderChrome()
+    back.click()
     waitForObject(TAG_LIBRARY_LIST)
+}
+
+private fun MacrobenchmarkScope.revealReaderChrome(): UiObject2 {
+    val center = waitForObject(TAG_READER_VIEWPORT).visibleCenter
+    device.click(center.x, center.y)
+    // The single tap is reported only after the double-tap timeout; waitForObject covers that.
+    return waitForObject(TAG_READER_BACK)
 }
 
 fun MacrobenchmarkScope.waitForObject(tag: String, timeoutMs: Long = UI_TIMEOUT_MS): UiObject2 =

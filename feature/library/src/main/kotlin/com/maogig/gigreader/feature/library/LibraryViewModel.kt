@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -148,6 +149,9 @@ internal class LibraryViewModel(
             nowMillis = now - now % NOW_QUANTUM_MILLIS,
         )
     }.flowOn(computeDispatcher)
+        // Items that disappeared (trashed, moved away, hidden by a filter or an undo) leave the
+        // selection for good, so a later tap or bulk action never acts on something not on screen.
+        .onEach { snapshot -> pruneSelection(snapshot.content.visible) }
 
     val uiState: StateFlow<LibraryUiState> = combine(content, selection, dialog) { snapshot, selected, openDialog ->
         snapshot.toUiState(selected, openDialog)
@@ -390,6 +394,12 @@ internal class LibraryViewModel(
 
     private fun refreshSearch() {
         if (query.value.isNotBlank()) searchRefresh.update { it + 1 }
+    }
+
+    private fun pruneSelection(visible: Map<ItemRef, LibraryItem>) {
+        selection.update { current ->
+            if (current.all { it in visible }) current else current.filterTo(LinkedHashSet()) { it in visible }
+        }
     }
 
     private fun removeFromSelection(items: Collection<ItemRef>) {

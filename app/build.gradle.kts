@@ -30,6 +30,8 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += listOf("release")
             isDebuggable = false
+            // Minified like release but not obfuscated, so generated Baseline Profiles are usable.
+            proguardFiles("benchmark-rules.pro")
             buildConfigField("boolean", "TEST_HOOKS", "true")
         }
     }

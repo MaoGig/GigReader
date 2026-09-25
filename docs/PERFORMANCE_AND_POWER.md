@@ -100,8 +100,10 @@ Nada disso roda no `Application.onCreate`.
 - **Macrobenchmark** (`:benchmark`) — `StartupTimingMetric`, `FrameTimingMetric`,
   `TraceSectionMetric` (seções `GigReader.*` instrumentadas no código) e `PowerMetric`
   (aparelhos com power rails).
-- **Baseline Profiles** — gerados pelo `BaselineProfileGenerator` no módulo `:benchmark` e
-  empacotados pelo `profileinstaller`.
+- **Baseline Profiles** — gerados pelo `BaselineProfileGenerator` no módulo `:benchmark` (variante
+  `benchmark`: minificada como o release, mas sem ofuscação, para que o perfil tenha nomes reais),
+  copiados para `app/src/main/baseline-prof.txt` e instalados pelo `profileinstaller`. As seções
+  de trace são assíncronas: rode os benchmarks em Android 10+ (API 29).
 - **Tela de diagnóstico** (somente debug) — memória, cache de render, páginas em cache, tamanho do
   banco, duração do último render, jobs ativos.
 
@@ -113,7 +115,7 @@ Nada disso roda no `Application.onCreate`.
 | 2 | Abrir PDF pequeno (10 páginas) | `TraceSectionMetric("GigReader.openDocument")`, tempo até 1ª página |
 | 3 | Abrir PDF grande (1000+ páginas) | idem |
 | 4 | Scroll contínuo (fling ×10) | `FrameTimingMetric` (P50/P90/P99, frames > 16/33 ms) |
-| 5 | Zoom (pinça + duplo toque) | `FrameTimingMetric`, `TraceSectionMetric("GigReader.renderTile")` |
+| 5 | Zoom (pinça + duplo toque) | `FrameTimingMetric`, `TraceSectionMetric("GigReader.renderPage")` |
 | 6 | Adicionar highlight | fase 3 |
 | 7 | Pesquisar texto | fase 2 |
 | 8 | Trocar de página (próxima ×20) | `FrameTimingMetric` |

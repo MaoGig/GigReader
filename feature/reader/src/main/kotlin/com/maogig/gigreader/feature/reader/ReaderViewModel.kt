@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -137,6 +138,9 @@ class ReaderViewModel(
 
     private suspend fun open() {
         val cookie = PerfTrace.begin(PerfTrace.OPEN_DOCUMENT)
+        // "Time to first page": from here until the first page bitmap is ready (or the open fails).
+        val firstPageCookie = PerfTrace.begin(PerfTrace.FIRST_PAGE)
+        var firstPageTracked = false
         try {
             val opened = when (source) {
                 is ReaderSource.LibraryDocument -> openLibraryDocument(source.documentId)
@@ -171,6 +175,14 @@ class ReaderViewModel(
             )
             val newPipeline = RenderPipeline(opened.document, viewModelScope, budget)
             pipeline = newPipeline
+            firstPageTracked = true
+            viewModelScope.launch {
+                try {
+                    newPipeline.version.first { it > 0 }
+                } finally {
+                    PerfTrace.end(PerfTrace.FIRST_PAGE, firstPageCookie)
+                }
+            }
             _state.value = ReaderUiState.Ready(
                 ReaderSession(
                     title = opened.title,
@@ -204,6 +216,7 @@ class ReaderViewModel(
             fail(ReaderError.CORRUPTED)
         } finally {
             PerfTrace.end(PerfTrace.OPEN_DOCUMENT, cookie)
+            if (!firstPageTracked) PerfTrace.end(PerfTrace.FIRST_PAGE, firstPageCookie)
         }
     }
 
