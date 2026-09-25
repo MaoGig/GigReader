@@ -318,6 +318,31 @@ benchmark           Macrobenchmark + geração de Baseline Profile
 
 ---
 
+### 10.1 Dependências (§69)
+
+| Dependência | Por quê | Alternativa descartada |
+|---|---|---|
+| Kotlin + Coroutines/Flow | linguagem e concorrência estruturada (cancelamento, dispatchers limitados) | RxJava (pesado, sem necessidade) |
+| Jetpack Compose (BOM) + Material 3 | UI declarativa com controle fino de recomposição; componentes acessíveis | Views/XML (mais código, menos controle de estado) |
+| material-icons-extended | ícones consistentes; só os usados sobrevivem ao R8 no release | desenhar vetores à mão |
+| Room + KSP | SQLite com consultas verificadas em compilação, `Flow` por invalidação, migrações | SQLDelight (bom, mas sem vantagem aqui), ORM próprio |
+| DataStore Preferences | preferências assíncronas e transacionais | SharedPreferences (I/O na main thread) |
+| lifecycle (viewmodel/runtime-compose) + activity-compose | ViewModel por tela, coleta ciente de ciclo de vida, Activity Result APIs | — |
+| androidx.core | FileProvider, WindowInsetsController, IntentCompat | — |
+| profileinstaller | instala Baseline Profiles (≈30 % mais rápido no primeiro uso) | — |
+| **Sem** Hilt/Dagger/Koin | DI manual: 1 arquivo, zero custo de startup | Hilt (geração de código e tempo de build) |
+| **Sem** Navigation | 6 destinos: pilha própria com `SaveableStateHolder` e `ViewModelStore` por entrada | navigation-compose / navigation3 |
+| **Sem** Coil/Glide | capas pequenas pré-geradas + LRU próprio | biblioteca de imagens (resolve problemas que não temos) |
+
+Testes: kotlin-test, coroutines-test, JUnit 4, Robolectric + androidx.test (Room em JVM),
+Macrobenchmark + UiAutomator (desempenho).
+
+### 10.2 minSdk 26
+
+Android 8.0+ cobre ~97 % dos aparelhos ativos e é o ponto em que os **pixels de Bitmap passam para o
+heap nativo** (base da estratégia de memória do leitor), além de ícones adaptativos e `java.time`. A
+AndroidX já exige 23 e caminha para 24.
+
 ## 11. Riscos técnicos
 
 | Risco | Impacto | Mitigação |
