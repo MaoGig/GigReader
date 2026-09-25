@@ -77,6 +77,18 @@ class RenderPlannerTest {
     }
 
     @Test
+    fun veryTallPagesGetACappedBaseAndTilesAtFitWidth() {
+        // A 1:20 scroll-like page next to a normal page.
+        val l = DocumentLayout.build(floatArrayOf(595f, 200f), floatArrayOf(842f, 4000f), 1000f, 0f, 0f)
+        val tall = planner.baseKey(l, 1)
+        assertTrue(tall.heightPx <= RenderPlanner.MAX_BASE_HEIGHT_PX, "height capped: $tall")
+        assertTrue(tall.widthPx.toLong() * tall.heightPx * 4 <= RenderPlanner.MAX_BASE_BYTES.toLong(), "bytes capped: $tall")
+        assertEquals(1000, planner.baseKey(l, 0).widthPx)
+        val plan = planner.plan(l, ViewportTransform(1f, 0f, l.pageTop(1) + 100f), 1000f, 2000f)
+        assertTrue(plan.tiles.isNotEmpty() && plan.tiles.all { it.page == 1 }, "only the capped page needs tiles at zoom 1")
+    }
+
+    @Test
     fun emptyDocumentProducesEmptyPlan() {
         val empty = DocumentLayout.build(FloatArray(0), FloatArray(0), vw, 0f, 0f)
         assertEquals(RenderPlan.Empty, planner.plan(empty, ViewportTransform(), vw, vh))

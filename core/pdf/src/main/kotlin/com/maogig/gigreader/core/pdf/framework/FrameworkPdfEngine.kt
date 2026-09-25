@@ -17,8 +17,10 @@ import com.maogig.gigreader.core.pdf.engine.PdfEngine
 import com.maogig.gigreader.core.pdf.engine.PdfOpenException
 import com.maogig.gigreader.core.pdf.engine.RenderJob
 import com.maogig.gigreader.core.pdf.engine.TextMatch
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileNotFoundException
@@ -36,42 +38,71 @@ class FrameworkPdfEngine(
 ) : PdfEngine {
     override val id: String = "framework"
 
-    override suspend fun open(file: File, password: String?): PdfDocument {
-        val descriptor = withContext(Dispatchers.IO) {
-            try {
-                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-            } catch (e: FileNotFoundException) {
-                throw PdfOpenException.Unreadable(e)
-            }
+    // The file is opened on the engine lane too (one cheap syscall), so there is a single hop whose
+    // result can be discarded by cancellation; see [openOnLane].
+    override suspend fun open(file: File, password: String?): PdfDocument = openOnLane(onNotStarted = {}) {
+        val descriptor = try {
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        } catch (e: FileNotFoundException) {
+            throw PdfOpenException.Unreadable(e)
+        } catch (e: SecurityException) {
+            throw PdfOpenException.Unreadable(e)
         }
-        return open(descriptor, password)
+        createRenderer(descriptor, password)
     }
 
-    override suspend fun open(descriptor: ParcelFileDescriptor, password: String?): PdfDocument = withContext(dispatcher) {
-        val renderer = try {
-            if (Build.VERSION.SDK_INT >= 35 && password != null) {
-                Api35.openWithPassword(descriptor, password)
-            } else {
-                PdfRenderer(descriptor)
+    override suspend fun open(descriptor: ParcelFileDescriptor, password: String?): PdfDocument =
+        openOnLane(onNotStarted = { descriptor.closeQuietly() }) { createRenderer(descriptor, password) }
+
+    /**
+     * Runs [block] on the engine lane. `withContext` has a prompt-cancellation guarantee: if the
+     * caller is cancelled, the block may never run (the descriptor we own is still open) or its
+     * result may be thrown away (a live renderer nobody will ever close). Both would leak a file
+     * descriptor and the native document until a finalizer runs, so they are released here.
+     */
+    private suspend fun openOnLane(onNotStarted: () -> Unit, block: () -> PdfRenderer): PdfDocument {
+        var opened: PdfRenderer? = null
+        try {
+            return withContext(dispatcher) {
+                val renderer = block()
+                opened = renderer
+                FrameworkPdfDocument(renderer, dispatcher)
             }
-        } catch (e: SecurityException) {
-            descriptor.closeQuietly()
-            throw PdfOpenException.PasswordRequired(e)
-        } catch (e: IllegalArgumentException) {
-            // Thrown for non-seekable descriptors (pipes/sockets from streaming providers).
-            descriptor.closeQuietly()
-            throw PdfOpenException.NotSeekable(e)
-        } catch (e: IOException) {
-            descriptor.closeQuietly()
-            throw PdfOpenException.Corrupted(e)
-        } catch (e: OutOfMemoryError) {
-            descriptor.closeQuietly()
-            throw PdfOpenException.OutOfMemory(e)
-        } catch (e: RuntimeException) {
-            descriptor.closeQuietly()
-            throw PdfOpenException.Corrupted(e)
+        } catch (e: CancellationException) {
+            val renderer = opened
+            if (renderer != null) {
+                withContext(NonCancellable + dispatcher) { renderer.close() }
+            } else {
+                // Not started, or failed (the descriptor is then already closed; closing twice is a no-op).
+                onNotStarted()
+            }
+            throw e
         }
-        FrameworkPdfDocument(renderer, dispatcher)
+    }
+
+    /** Must run on [dispatcher]. On failure the descriptor is closed (the renderer never took it). */
+    private fun createRenderer(descriptor: ParcelFileDescriptor, password: String?): PdfRenderer = try {
+        if (Build.VERSION.SDK_INT >= 35 && password != null) {
+            Api35.openWithPassword(descriptor, password)
+        } else {
+            PdfRenderer(descriptor)
+        }
+    } catch (e: SecurityException) {
+        descriptor.closeQuietly()
+        throw PdfOpenException.PasswordRequired(e)
+    } catch (e: IllegalArgumentException) {
+        // Thrown for non-seekable descriptors (pipes/sockets from streaming providers).
+        descriptor.closeQuietly()
+        throw PdfOpenException.NotSeekable(e)
+    } catch (e: IOException) {
+        descriptor.closeQuietly()
+        throw PdfOpenException.Corrupted(e)
+    } catch (e: OutOfMemoryError) {
+        descriptor.closeQuietly()
+        throw PdfOpenException.OutOfMemory(e)
+    } catch (e: RuntimeException) {
+        descriptor.closeQuietly()
+        throw PdfOpenException.Corrupted(e)
     }
 
     companion object {
@@ -107,8 +138,10 @@ private class FrameworkPdfDocument(
     }
 
     override suspend fun measurePages(range: IntRange, out: PageSizes, isCancelled: () -> Boolean) = withContext(dispatcher) {
+        // A closed document must fail loudly: returning normally would look like "measured".
+        checkOpen()
         for (i in range) {
-            if (closed || isCancelled()) break
+            if (isCancelled()) break
             val p = renderer.openPage(i)
             try {
                 out.widths[i] = p.width.toFloat()
@@ -161,7 +194,9 @@ private class FrameworkPdfDocument(
         }
     }
 
-    override suspend fun close() = withContext(dispatcher) {
+    // NonCancellable: callers close in `finally` blocks, often because they were just cancelled.
+    // A cancellable withContext would then throw before running and leak the renderer and its fd.
+    override suspend fun close() = withContext(NonCancellable + dispatcher) {
         if (!closed) {
             closed = true
             renderer.close()
@@ -176,11 +211,13 @@ private object Api35 {
     fun openWithPassword(descriptor: ParcelFileDescriptor, password: String): PdfRenderer =
         PdfRenderer(descriptor, LoadParams.Builder().setPassword(password).build())
 
+    // Immutable; built once instead of once per tile.
+    private val displayParams: RenderParams = RenderParams.Builder(RenderParams.RENDER_MODE_FOR_DISPLAY)
+        .setRenderFlags(RenderParams.FLAG_RENDER_HIGHLIGHT_ANNOTATIONS or RenderParams.FLAG_RENDER_TEXT_ANNOTATIONS)
+        .build()
+
     fun render(page: PdfRenderer.Page, job: RenderJob, matrix: Matrix) {
-        val params = RenderParams.Builder(RenderParams.RENDER_MODE_FOR_DISPLAY)
-            .setRenderFlags(RenderParams.FLAG_RENDER_HIGHLIGHT_ANNOTATIONS or RenderParams.FLAG_RENDER_TEXT_ANNOTATIONS)
-            .build()
-        page.render(job.target, null, matrix, params)
+        page.render(job.target, null, matrix, displayParams)
     }
 
     fun search(page: PdfRenderer.Page, index: Int, query: String): List<TextMatch> {

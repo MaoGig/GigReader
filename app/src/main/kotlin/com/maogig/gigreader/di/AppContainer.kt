@@ -51,7 +51,11 @@ class AppContainer(private val app: Application) {
 
     val settingsRepository: SettingsRepository by lazy {
         DataStoreSettingsRepository(
-            PreferenceDataStoreFactory.create(scope = applicationScope) { app.preferencesDataStoreFile("settings") },
+            // DataStore runs its file reads/writes in this scope, so it must be the IO dispatcher
+            // (the Default-dispatcher applicationScope would do disk I/O on CPU threads).
+            PreferenceDataStoreFactory.create(scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)) {
+                app.preferencesDataStoreFile("settings")
+            },
         )
     }
 

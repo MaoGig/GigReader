@@ -28,9 +28,13 @@ import com.maogig.gigreader.core.pdf.render.RenderPipeline
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -232,22 +236,54 @@ class ReaderViewModel(
 
     /** Opens a URI in place when the provider gives a seekable file, else from a temporary copy. */
     private suspend fun openUri(uri: Uri): PdfDocument {
-        val descriptor = withContext(Dispatchers.IO) { app.contentResolver.openFileDescriptor(uri, "r") }
-            ?: throw FileNotFoundException(uri.toString())
-        return try {
-            deps.engine.open(descriptor)
-        } catch (e: PdfOpenException.NotSeekable) {
-            val copy = withContext(Dispatchers.IO) {
+        val descriptor = try {
+            withContext(Dispatchers.IO) { app.contentResolver.openFileDescriptor(uri, "r") }
+        } catch (e: FileNotFoundException) {
+            // Also thrown for "Not a whole file" (the provider serves a section of a file or only a
+            // stream); openInputStream below may still work. A truly missing file fails there too.
+            null
+        }
+        if (descriptor != null) {
+            try {
+                return deps.engine.open(descriptor) // the engine owns (and closes) the descriptor
+            } catch (e: PdfOpenException.NotSeekable) {
+                // Streaming provider (pipe/socket): fall back to a temporary copy.
+            }
+        }
+        val copy = copyToCache(uri)
+        externalCopy = copy
+        return deps.engine.open(copy)
+    }
+
+    /** Reads [uri] once into the reader's temporary file; cancellable, never leaves a stray copy. */
+    private suspend fun copyToCache(uri: Uri): File {
+        var target: File? = null
+        try {
+            return withContext(Dispatchers.IO) {
                 val dir = File(app.cacheDir, "external").apply { mkdirs() }
                 dir.listFiles()?.forEach { it.delete() } // one temporary copy at a time
-                val target = File(dir, "open.pdf")
-                app.contentResolver.openInputStream(uri)?.use { input ->
-                    target.outputStream().use { output -> input.copyTo(output, 256 * 1024) }
-                } ?: throw FileNotFoundException(uri.toString())
-                target
+                val file = File(dir, "open.pdf")
+                target = file
+                val input = app.contentResolver.openInputStream(uri) ?: throw FileNotFoundException(uri.toString())
+                input.use {
+                    file.outputStream().use { output ->
+                        val buffer = ByteArray(COPY_BUFFER_BYTES)
+                        while (true) {
+                            // Leaving the reader stops a long copy from a slow provider right away.
+                            ensureActive()
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            output.write(buffer, 0, read)
+                        }
+                    }
+                }
+                file
             }
-            externalCopy = copy
-            deps.engine.open(copy)
+        } catch (e: Throwable) {
+            // Failed, cancelled mid-copy, or cancelled just after it finished (withContext then
+            // discards the result): nobody will own the file, so remove it now.
+            target?.let { file -> withContext(NonCancellable + Dispatchers.IO) { file.delete() } }
+            throw e
         }
     }
 
@@ -265,6 +301,7 @@ class ReaderViewModel(
      * once, anchored at the current page) and persists them so the next open needs no measuring.
      */
     private suspend fun measureRemaining(doc: PdfDocument, initial: PageMetrics) {
+        val job = currentCoroutineContext()[Job]
         val sizes = initial.sizes.copy()
         var measured = initial.measuredCount
         var changedSincePublish = false
@@ -273,7 +310,8 @@ class ReaderViewModel(
             val end = min(sizes.count, measured + CHUNK)
             val before = sizes.widths.copyOfRange(measured, end) to sizes.heights.copyOfRange(measured, end)
             try {
-                doc.measurePages(measured until end, sizes)
+                // Checked between pages, so closing the reader stops measuring within one page load.
+                doc.measurePages(measured until end, sizes) { job?.isActive == false }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -330,9 +368,11 @@ class ReaderViewModel(
         persistScope.launch {
             try {
                 positionSaver.flush()
-                doc?.close()
-                copy?.delete()
             } finally {
+                // Cleanup must always run and must not throw: this scope has no exception handler,
+                // so a failure here would crash the process after the reader is already gone.
+                runCatching { doc?.close() }
+                runCatching { copy?.delete() }
                 PerfTrace.end(PerfTrace.CLOSE_DOCUMENT, cookie)
                 persistScope.cancel()
             }
@@ -349,5 +389,6 @@ class ReaderViewModel(
     private companion object {
         const val CHUNK = 16
         const val PUBLISH_EVERY = 256
+        const val COPY_BUFFER_BYTES = 256 * 1024
     }
 }

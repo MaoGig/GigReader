@@ -81,6 +81,9 @@ class RenderPipeline(
     private var busy = false
 
     @Volatile
+    private var closed = false
+
+    @Volatile
     private var lastRenderMillis = 0L
 
     @Volatile
@@ -143,6 +146,7 @@ class RenderPipeline(
 
     /** Stops the worker and releases all bitmaps. The document itself is closed by its owner. */
     fun close() {
+        closed = true
         RenderDiagnostics.unregister(this)
         worker.cancel()
         signal.close()
@@ -173,26 +177,34 @@ class RenderPipeline(
     }
 
     private suspend fun renderPage(page: Int, current: RenderPlan, attempted: MutableSet<RenderKey>) {
-        val keys = current.keys.filter { it.page == page && it !in attempted && it !in cache }
-        attempted.addAll(keys)
-        val jobs = keys.map { key ->
-            val bitmap = when (key) {
-                is PageKey -> pool.obtain(key.widthPx, key.heightPx)
-                is TileKey -> pool.obtain(key.tileSize, key.tileSize)
-            }
-            when (key) {
-                is PageKey -> RenderJob(bitmap, key.widthPx, key.heightPx, isStale = { key !in wanted })
-                is TileKey -> RenderJob(
-                    bitmap, key.pageWidthPx, key.pageHeightPx, key.left, key.top,
-                    isStale = { key !in wanted },
-                )
-            }
-        }
+        val candidates = current.keys.filter { it.page == page && it !in attempted && it !in cache }
+        attempted.addAll(candidates)
+        // A bitmap the platform refuses to draw would crash the UI thread on the next frame
+        // ("Canvas: trying to draw too large bitmap"); such keys (extremely tall pages at base
+        // resolution) are never rendered. The page stays blank at base zoom; its tiles still work.
+        val keys = candidates.filter { it.bitmapBytes() <= MAX_DRAWABLE_BITMAP_BYTES }
+        if (keys.isEmpty()) return
+        val jobs = ArrayList<RenderJob>(keys.size)
         val started = SystemClock.elapsedRealtime()
         val rendered = try {
+            // Allocation is inside the try: createBitmap can throw OutOfMemoryError, which must not
+            // escape the worker (it would crash the app through the owner's scope).
+            for (key in keys) {
+                jobs += when (key) {
+                    is PageKey -> RenderJob(
+                        pool.obtain(key.widthPx, key.heightPx), key.widthPx, key.heightPx,
+                        isStale = { key !in wanted },
+                    )
+                    is TileKey -> RenderJob(
+                        pool.obtain(key.tileSize, key.tileSize), key.pageWidthPx, key.pageHeightPx, key.left, key.top,
+                        isStale = { key !in wanted },
+                    )
+                }
+            }
             PerfTrace.async(PerfTrace.RENDER_PAGE) { document.render(page, jobs) }
         } catch (e: CancellationException) {
-            jobs.forEach { pool.release(it.target) }
+            // Cancellation almost always means close(): keep the emptied pool empty.
+            if (!closed) jobs.forEach { pool.release(it.target) }
             throw e
         } catch (e: OutOfMemoryError) {
             jobs.forEach { pool.release(it.target) }
@@ -208,9 +220,14 @@ class RenderPipeline(
             return
         }
         lastRenderMillis = SystemClock.elapsedRealtime() - started
+        // Closed while this (uninterruptible) render ran: do not refill the cache/pool that close()
+        // just emptied; the bitmaps are simply dropped.
+        if (closed) return
         var any = false
         for (i in jobs.indices) {
             if (rendered[i]) {
+                // Starts the GPU texture upload on RenderThread now, not on the first draw.
+                jobs[i].target.prepareToDraw()
                 cache.put(keys[i], jobs[i].target)
                 completed++
                 any = true
@@ -220,5 +237,15 @@ class RenderPipeline(
             }
         }
         if (any) _version.value++
+    }
+
+    private fun RenderKey.bitmapBytes(): Long = when (this) {
+        is PageKey -> widthPx.toLong() * heightPx * 4L
+        is TileKey -> tileSize.toLong() * tileSize * 4L
+    }
+
+    private companion object {
+        /** RecordingCanvas' limit for drawing a (non-hardware) bitmap: 100 MB on older releases. */
+        const val MAX_DRAWABLE_BITMAP_BYTES = 100L * 1024 * 1024
     }
 }

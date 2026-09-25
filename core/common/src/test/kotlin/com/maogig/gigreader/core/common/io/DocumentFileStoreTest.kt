@@ -34,11 +34,14 @@ class DocumentFileStoreTest {
         store.openForWrite(incoming).use { it.write(1) }
         val kept = store.commit(incoming, "kept")
         val orphan = store.newIncomingFile().also { store.openForWrite(it).use { o -> o.write(2) } }
-        store.commit(orphan, "orphan")
+        val orphanPath = store.commit(orphan, "orphan")
         val stale = store.newIncomingFile()
         stale.setLastModified(0)
 
-        assertEquals(1, store.cleanupOrphans(setOf(kept)))
+        val now = System.currentTimeMillis()
+        assertEquals(0, store.cleanupOrphans(setOf(kept), now), "recent files are never swept")
+        store.fileFor(orphanPath).setLastModified(0)
+        assertEquals(1, store.cleanupOrphans(setOf(kept), now))
         assertTrue(store.fileFor(kept).exists())
         assertEquals(1, store.cleanupIncoming(nowMillis = System.currentTimeMillis()))
     }

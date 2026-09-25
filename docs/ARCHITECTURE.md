@@ -340,8 +340,8 @@ Macrobenchmark + UiAutomator (desempenho).
 ### 10.2 minSdk 26
 
 Android 8.0+ cobre ~97 % dos aparelhos ativos e é o ponto em que os **pixels de Bitmap passam para o
-heap nativo** (base da estratégia de memória do leitor), além de ícones adaptativos e `java.time`. A
-AndroidX já exige 23 e caminha para 24.
+heap nativo** (base da estratégia de memória do leitor), além de ícones adaptativos e `java.time`. As
+versões atuais da AndroidX já exigem minSdk 24.
 
 ## 11. Riscos técnicos
 
@@ -380,7 +380,7 @@ AndroidX já exige 23 e caminha para 24.
 | **1 — Fundação** | MVP acima | CI verde; testes JVM + Room; benchmark de startup e scroll executáveis |
 | **2 — Leitor** | Engine PDFium (JNI próprio, binário pinado), miniaturas incrementais, sumário/TOC, busca no documento com destaque temporário, histórico de navegação, modo paginado e duas páginas | Abrir PDF de 1000 páginas < 500 ms até a 1ª página (aparelho médio); 0 frames > 32 ms no scroll do benchmark |
 | **3 — Anotações** | Seleção de texto (caixas por caractere), highlight/underline/strike, nota no highlight, visão geral de páginas anotadas, painel lateral, desfazer/refazer | Highlight persistido < 16 ms na main thread; reconstrução exata após reabrir |
-| **4 — Notas** | Notas vinculadas a página, bookmarks nomeados, tags, busca global (FTS4 sobre nomes, notas, highlights, bookmarks) | Busca global < 100 ms em biblioteca de 5000 itens |
+| **4 — Notas** | Notas vinculadas a página, bookmarks nomeados, tags, busca global (FTS4 do SQLite do sistema — o FTS5 não vem habilitado no Android — sobre nomes, notas, highlights, bookmarks) | Busca global < 100 ms em biblioteca de 5000 itens |
 | **5 — Exportação** | PDF com anotações reais (FPDF_ANNOT_HIGHLIGHT + /Contents, save incremental), PDF achatado, formato `.gigreader`, importação do formato | Round-trip `.gigreader` sem perda (teste) |
 | **6 — Performance** | Baseline Profiles, ajuste de caches, perfis de energia, metas do `PERFORMANCE_AND_POWER.md` | Metas atingidas em aparelho de referência |
 | **7 — Backup** | `BackupProvider` + backup local (SAF), Google Drive preparado | Restaurar biblioteca em aparelho limpo |

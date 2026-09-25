@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.setValue
 import com.maogig.gigreader.core.common.render.DocumentLayout
 import com.maogig.gigreader.core.common.render.PagePosition
@@ -25,7 +26,10 @@ class PdfViewportState(
     initialZoom: Float,
     val math: ViewportMath = ViewportMath(minZoom = 1f, maxZoom = 8f),
 ) {
-    var transform: ViewportTransform by mutableStateOf(ViewportTransform(initialZoom.coerceIn(math.minZoom, math.maxZoom)))
+    // A corrupt stored zoom (NaN/∞) would poison every coordinate; coerceIn lets NaN through.
+    private val startZoom = if (initialZoom.isFinite()) initialZoom.coerceIn(math.minZoom, math.maxZoom) else math.minZoom
+
+    var transform: ViewportTransform by mutableStateOf(ViewportTransform(startZoom))
         private set
 
     var layout: DocumentLayout? by mutableStateOf(null)
@@ -42,7 +46,7 @@ class PdfViewportState(
         private set
 
     /** Zoom bucket whose tiles are drawn; follows the zoom only once it settles. */
-    var tileBucket: Int by mutableIntStateOf(ZoomBuckets.bucketFor(initialZoom))
+    var tileBucket: Int by mutableIntStateOf(ZoomBuckets.bucketFor(startZoom))
         private set
 
     /** Position to restore once the first layout arrives (or after the layout is rebuilt). */
@@ -122,5 +126,20 @@ class PdfViewportState(
     fun onZoomSettled() {
         isZooming = false
         tileBucket = ZoomBuckets.bucketFor(transform.zoom)
+    }
+
+    companion object {
+        /**
+         * Saves the size-independent reading position (page, fraction, zoom), so the viewport comes
+         * back where the user was after an activity recreation (theme, locale, font scale) or
+         * process death instead of jumping back to where the document was opened.
+         */
+        val Saver: Saver<PdfViewportState, FloatArray> = Saver(
+            save = { state ->
+                val position = state.topPosition()
+                floatArrayOf(position.page.toFloat(), position.pageOffset, state.transform.zoom)
+            },
+            restore = { saved -> PdfViewportState(PagePosition(saved[0].toInt(), saved[1]), saved[2]) },
+        )
     }
 }

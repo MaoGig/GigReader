@@ -1,6 +1,6 @@
 # Every dependency is justified in docs/ARCHITECTURE.md ("Dependências"). Keep this list short.
 [versions]
-agp = "9.4.0"
+agp = "9.3.2"
 kotlin = "2.4.20"
 ksp = "2.3.12"
 coroutines = "1.11.0"
@@ -24,6 +24,9 @@ kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-c
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+# Android unit tests: AGP's built-in Kotlin does not infer kotlin-test's framework variant (the Kotlin
+# plugin only does that for its own targets), so without this kotlin.test.Test/BeforeTest are unresolved.
+kotlin-test-junit = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
 junit = { module = "junit:junit", version.ref = "junit" }
 
 androidx-core = { module = "androidx.core:core", version.ref = "androidxCore" }

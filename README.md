@@ -23,7 +23,7 @@ diagnóstico (debug); benchmarks. Veja o plano de fases em `docs/ARCHITECTURE.md
 ## Stack
 
 Kotlin 2.4 · Jetpack Compose (BOM 2026.09) · Material 3 · Room 2.8 + KSP · DataStore ·
-Coroutines/Flow · AGP 9.4 (Kotlin embutido) · Gradle 9.6 · compileSdk 37 · minSdk 26 · targetSdk 36.
+Coroutines/Flow · AGP 9.3 (Kotlin embutido) · Gradle 9.6 · compileSdk 37 · minSdk 26 · targetSdk 36.
 
 Sem framework de DI, sem biblioteca de navegação, sem biblioteca de imagens: cada dependência está
 justificada na arquitetura.

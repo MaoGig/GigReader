@@ -133,7 +133,11 @@ private fun ReaderContent(
     events: ReaderViewModel,
     modifier: Modifier = Modifier,
 ) {
-    val viewportState = remember(session) { PdfViewportState(session.initialPosition, session.initialZoom) }
+    // Saveable: an activity recreation (theme/locale/font-scale change) or process death must not
+    // send the reader back to the position the document was opened at.
+    val viewportState = rememberSaveable(session, saver = PdfViewportState.Saver) {
+        PdfViewportState(session.initialPosition, session.initialZoom)
+    }
     val animationsEnabled = LocalUiPreferences.current.animationsEnabled
     val controller = rememberViewportController(viewportState, animationsEnabled)
     var chromeVisible by rememberSaveable { mutableStateOf(true) }

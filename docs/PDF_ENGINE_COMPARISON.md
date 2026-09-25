@@ -22,7 +22,7 @@
 ### PdfRenderer (framework)
 - `Page.render(Bitmap, Rect, Matrix, int)` aceita matriz afim + clip → tiles funcionam em todo API
   level; **só ARGB_8888**; não pinta fundo (é preciso `eraseColor(WHITE)`).
-- **Uma página aberta por vez** (API 21–34); lock estático de processo em toda chamada (API 26+) —
+- **Uma página aberta por vez** (API 21–34); lock estático de processo em toda chamada (desde o Android 7.1.1; antes disso a classe nem sincroniza as chamadas e se declara "not thread safe") —
   nada roda em paralelo, **nenhum render é cancelável ou progressivo**.
 - Lê o arquivo sob demanda (`pread`), mas exige descritor **seekable** (pipes de provedores de
   nuvem lançam `IllegalArgumentException`).
@@ -51,9 +51,10 @@
   `FPDF_GetPageSizeByIndexF` (tamanhos **sem carregar páginas**), `FPDF_RenderPageBitmapWithMatrix`
   (tiles), `FPDF_RenderPageBitmap_Start/Continue` + `IFSDK_PAUSE` (**render cancelável**),
   `FPDFText_*` (caixas por caractere, `GetCharIndexAtPos`, busca), `FPDFBookmark_*` (**TOC**),
-  `FPDF_GetPageLabel`, `FPDFLink_*`, `FPDFPage_CreateAnnot(HIGHLIGHT)` +
-  `FPDFAnnot_AppendAttachmentPoints` + `SetStringValue("Contents")` (**highlight com nota**) e
-  `FPDF_SaveAsCopy(FPDF_INCREMENTAL)`.
+  `FPDF_GetPageLabel`, `FPDFLink_*`, `FPDFPage_GetAnnotCount`/`GetAnnot` (leitura),
+  `FPDFPage_CreateAnnot(HIGHLIGHT)` + `FPDFAnnot_AppendAttachmentPoints` + `FPDFAnnot_SetRect`
+  (a `/Rect` é obrigatória e não é criada automaticamente) + `SetColor` +
+  `SetStringValue("Contents")` (**highlight com nota**) e `FPDF_SaveAsCopy(FPDF_INCREMENTAL)`.
 - Várias páginas podem ficar abertas (cache LRU de `FPDF_PAGE`/`FPDF_TEXTPAGE`), ao contrário do
   framework. Benchmarks do PdfiumAndroidKt: reabrir a página a cada passe custa ~6–7 ms vs ~3 ms com
   a página mantida aberta.

@@ -80,13 +80,18 @@ class ImportManager(
     private val ids: IdGenerator = IdGenerator.Uuid,
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
-    private data class Request(val uri: Uri, val folderId: String?)
+    private data class Request(val uri: Uri, val folderId: String?, val generation: Int)
 
     private val queue = Channel<Request>(Channel.UNLIMITED)
     private var worker: Job? = null
 
+    /**
+     * Bumped by [cancelAll]. A request queued in an older generation is cancelled; newer imports are
+     * unaffected, so "cancel, then import again" can neither resurrect the file being cancelled nor
+     * cancel the new ones (a single boolean flag did both, depending on timing).
+     */
     @Volatile
-    private var cancelRequested = false
+    private var generation = 0
 
     private val _progress = MutableStateFlow(ImportProgress())
     val progress: StateFlow<ImportProgress> = _progress.asStateFlow()
@@ -100,12 +105,12 @@ class ImportManager(
     @Synchronized
     fun import(uris: List<Uri>, folderId: String?) {
         if (uris.isEmpty()) return
-        cancelRequested = false
+        val current = generation
         _progress.update { it.copy(active = true, total = it.total + uris.size) }
-        uris.forEach { queue.trySend(Request(it, folderId)) }
+        uris.forEach { queue.trySend(Request(it, folderId, current)) }
         if (worker?.isActive != true) {
             worker = scope.launch(io) {
-                files.cleanupIncoming(clock.now())
+                sweepLeftovers()
                 for (request in queue) {
                     process(request)
                     // Reset once everything queued so far is done (compareAndSet: a concurrent
@@ -118,8 +123,9 @@ class ImportManager(
     }
 
     /** Cancels the file being copied and drops everything queued. */
+    @Synchronized
     fun cancelAll() {
-        cancelRequested = true
+        generation++
         var dropped = 0
         while (queue.tryReceive().isSuccess) dropped++
         if (dropped > 0) _progress.update { it.copy(total = it.total - dropped) }
@@ -159,7 +165,26 @@ class ImportManager(
         return Meta(name ?: uri.lastPathSegment?.substringAfterLast('/') ?: "document.pdf", size)
     }
 
+    private fun Request.isCancelled(): Boolean = this.generation != this@ImportManager.generation
+
+    /**
+     * Removes what interrupted imports or permanent deletions may have left behind (temp files,
+     * library files without a row). Runs when the importer wakes up, never at app start. Orphans are
+     * only swept when the database holds documents: if SQLite ever had to recreate an empty database
+     * after corruption, the files are the only copy left and must not be touched.
+     */
+    private suspend fun sweepLeftovers() {
+        val now = clock.now()
+        files.cleanupIncoming(now)
+        runCatching {
+            val dao = db.documentDao()
+            if (dao.count() > 0) files.cleanupOrphans(dao.managedPaths().toHashSet(), now)
+        }
+    }
+
     private suspend fun importOne(request: Request, meta: Meta): ImportOutcome = withContext(io) {
+        // Taken off the queue just before cancelAll() drained it.
+        if (request.isCancelled()) return@withContext ImportOutcome.Failed(meta.name, ImportError.CANCELLED)
         if (meta.size != null && files.usableSpace() < meta.size + FREE_SPACE_MARGIN) {
             return@withContext ImportOutcome.Failed(meta.name, ImportError.NO_SPACE)
         }
@@ -172,7 +197,7 @@ class ImportManager(
                     ?: return@withContext ImportOutcome.Failed(meta.name, ImportError.UNREADABLE)
                 input.use { source ->
                     files.openForWrite(incoming).use { out ->
-                        copyAndHash(source, out, isCancelled = { cancelRequested }) { copied ->
+                        copyAndHash(source, out, isCancelled = { request.isCancelled() }) { copied ->
                             _progress.update { it.copy(bytesCopied = copied) }
                         }
                     }

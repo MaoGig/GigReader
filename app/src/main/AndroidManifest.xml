@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <application
         android:name=".GigReaderApplication"
@@ -13,6 +14,12 @@
         android:localeConfig="@xml/locales_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.GigReader">
+
+        <!-- Lets Macrobenchmark / Perfetto trace the optimized, non-debuggable "benchmark" build
+             (docs/PERFORMANCE_AND_POWER.md §9). Shell-only: no effect for other apps or users. -->
+        <profileable
+            android:shell="true"
+            tools:targetApi="29" />
 
         <activity
             android:name=".MainActivity"

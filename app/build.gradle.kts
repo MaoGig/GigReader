@@ -82,7 +82,7 @@ dependencies {
     // Installs Baseline Profiles shipped in the APK (ahead-of-time compilation of hot paths).
     implementation(libs.androidx.profileinstaller)
 
-    testImplementation(libs.kotlin.test)
+    testImplementation(libs.kotlin.test.junit)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
 }

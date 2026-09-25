@@ -18,6 +18,9 @@ interface ReadingPositionDao {
 
     @Upsert
     suspend fun upsert(position: ReadingPositionEntity)
+
+    @Query("DELETE FROM reading_positions WHERE document_id IN (:documentIds)")
+    suspend fun deleteForDocuments(documentIds: List<String>)
 }
 
 @Dao
@@ -27,6 +30,9 @@ interface PageMetricsDao {
 
     @Upsert
     suspend fun upsert(metrics: PageMetricsEntity)
+
+    @Query("DELETE FROM page_metrics WHERE document_id IN (:documentIds)")
+    suspend fun deleteForDocuments(documentIds: List<String>)
 }
 
 @Dao

@@ -55,11 +55,15 @@ class DocumentFileStore(val rootDir: File) {
 
     /**
      * Deletes files in [rootDir] that no database row references (e.g. a crash between the rename in
-     * [commit] and the database insert). [referenced] are relative paths of live documents.
+     * [commit] and the database insert). [referenced] are relative paths of live documents. Only
+     * files untouched for [olderThanMillis] are considered, so a document committed a moment ago
+     * whose row is still being inserted is never at risk.
      */
-    fun cleanupOrphans(referenced: Set<String>): Int {
+    fun cleanupOrphans(referenced: Set<String>, nowMillis: Long, olderThanMillis: Long = 24 * 60 * 60 * 1000L): Int {
         val files = rootDir.listFiles() ?: return 0
-        return files.count { it.isFile && it.name !in referenced && it.delete() }
+        return files.count {
+            it.isFile && it.name !in referenced && nowMillis - it.lastModified() > olderThanMillis && it.delete()
+        }
     }
 
     fun usableSpace(): Long = (rootDir.takeIf { it.exists() } ?: rootDir.parentFile)?.usableSpace ?: 0L

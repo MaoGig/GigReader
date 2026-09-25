@@ -56,12 +56,15 @@ interface FolderDao {
     @Query("UPDATE folders SET parent_id = :parentId, modified_at = :now, version = version + 1 WHERE id IN (:ids)")
     suspend fun move(ids: List<String>, parentId: String?, now: Long)
 
-    /** Ids of [rootId] and all its live descendants (recursive). */
+    /**
+     * Ids of [rootId] and all its live descendants (recursive). UNION (not UNION ALL) drops rows
+     * already visited, so even a corrupted tree with a parent cycle terminates instead of spinning.
+     */
     @Query(
         """
         WITH RECURSIVE sub(id) AS (
           SELECT :rootId
-          UNION ALL
+          UNION
           SELECT f.id FROM folders f JOIN sub ON f.parent_id = sub.id
           WHERE f.trashed_at IS NULL AND f.deleted_at IS NULL
         )

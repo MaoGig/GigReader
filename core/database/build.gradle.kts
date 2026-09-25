@@ -39,7 +39,7 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     api(libs.kotlinx.coroutines.core)
 
-    testImplementation(libs.kotlin.test)
+    testImplementation(libs.kotlin.test.junit)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)

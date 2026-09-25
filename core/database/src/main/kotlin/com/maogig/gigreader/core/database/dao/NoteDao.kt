@@ -48,6 +48,10 @@ interface NoteDao {
     @Query("UPDATE notes SET title = :title, body = :body, modified_at = :now, version = version + 1 WHERE id = :id")
     suspend fun updateContent(id: String, title: String, body: String, now: Long)
 
+    /** Title only: never rewrites the body, so it cannot race with the editor's autosave. */
+    @Query("UPDATE notes SET title = :title, modified_at = :now, version = version + 1 WHERE id = :id")
+    suspend fun rename(id: String, title: String, now: Long)
+
     @Query("UPDATE notes SET folder_id = :folderId, modified_at = :now, version = version + 1 WHERE id IN (:ids)")
     suspend fun move(ids: List<String>, folderId: String?, now: Long)
 

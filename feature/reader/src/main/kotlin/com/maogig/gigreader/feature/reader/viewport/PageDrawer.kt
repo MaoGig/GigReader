@@ -90,7 +90,6 @@ internal class PageDrawer {
         val docBottom = docTop + viewportHeight / t.zoom
         val pages = layout.pagesIn(docTop, docBottom)
         if (pages.isEmpty()) return
-        val drawTiles = planner.needsTiles(layout, t.zoom)
         for (page in pages) {
             val left = (layout.pageLeft - t.offsetX) * t.zoom
             val top = (layout.pageTop(page) - t.offsetY) * t.zoom
@@ -108,7 +107,7 @@ internal class PageDrawer {
                 canvas.drawLine(dst.right, dst.top, dst.left, dst.bottom, failedPaint)
                 continue
             }
-            if (drawTiles) drawTiles(canvas, layout, t, page, left, top, viewportWidth, viewportHeight, pipeline, planner.tileSize, tileBucket)
+            if (planner.needsTiles(layout, page, t.zoom)) drawTiles(canvas, layout, t, page, left, top, viewportWidth, viewportHeight, pipeline, planner.tileSize, tileBucket)
         }
     }
 

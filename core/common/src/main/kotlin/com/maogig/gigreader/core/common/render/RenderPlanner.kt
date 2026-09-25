@@ -8,6 +8,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 /** Identifies a bitmap in the page caches. Keys are value types so lookups never allocate strings. */
 sealed interface RenderKey {
@@ -92,15 +93,24 @@ class RenderPlanner(
 
     fun baseWidthPx(layout: DocumentLayout): Int = min(maxBaseWidthPx, max(1, layout.contentWidth.roundToInt()))
 
+    /**
+     * Base bitmap for [page]. Unusually tall pages (scrolls, posters, fold-outs) are rendered at a
+     * lower width so no base bitmap exceeds [MAX_BASE_HEIGHT_PX] or [MAX_BASE_BYTES]: the canvas
+     * refuses to draw huge bitmaps, and tiles restore sharpness where the base is too coarse.
+     */
     fun baseKey(layout: DocumentLayout, page: Int): PageKey {
-        val w = baseWidthPx(layout)
-        val h = max(1, (w * layout.pageAspect(page)).roundToInt())
-        return PageKey(page, w, h)
+        val aspect = layout.pageAspect(page)
+        var w = baseWidthPx(layout).toFloat()
+        if (w * aspect > MAX_BASE_HEIGHT_PX) w = MAX_BASE_HEIGHT_PX / aspect
+        if (w * w * aspect * 4f > MAX_BASE_BYTES) w = sqrt(MAX_BASE_BYTES / 4f / aspect)
+        val width = max(1, w.toInt())
+        val height = max(1, (width * aspect).roundToInt())
+        return PageKey(page, width, height)
     }
 
-    /** Whether the base bitmap is sharp enough at [zoom] or tiles are needed. */
-    fun needsTiles(layout: DocumentLayout, zoom: Float): Boolean =
-        zoom * layout.contentWidth > baseWidthPx(layout) * tileThreshold
+    /** Whether [page]'s base bitmap is sharp enough at [zoom], or tiles are needed on top of it. */
+    fun needsTiles(layout: DocumentLayout, page: Int, zoom: Float): Boolean =
+        zoom * layout.contentWidth > baseKey(layout, page).widthPx * tileThreshold
 
     /**
      * @param includeTiles pass `false` while a pinch gesture is in progress: tiles for intermediate
@@ -140,7 +150,7 @@ class RenderPlanner(
         val pages = visibleOrder.map { baseKey(layout, it) }
         val prefetch = prefetchOrder.map { baseKey(layout, it) }
 
-        if (!includeTiles || !needsTiles(layout, transform.zoom) || visiblePages.isEmpty()) {
+        if (!includeTiles || visiblePages.isEmpty()) {
             return RenderPlan(pages, emptyList(), prefetch)
         }
 
@@ -149,6 +159,7 @@ class RenderPlanner(
         val tiles = ArrayList<TileKey>()
         val centerX = (visible.left + visible.right) / 2f
         for (page in visiblePages) {
+            if (!needsTiles(layout, page, transform.zoom)) continue
             val pageRect = DocRect(
                 layout.pageLeft,
                 layout.pageTop(page),
@@ -185,4 +196,9 @@ class RenderPlanner(
     }
 
     private fun pageCenter(layout: DocumentLayout, page: Int): Float = layout.pageTop(page) + layout.pageHeight(page) / 2f
+
+    companion object {
+        const val MAX_BASE_HEIGHT_PX = 8192f
+        const val MAX_BASE_BYTES = 32f * 1024f * 1024f
+    }
 }

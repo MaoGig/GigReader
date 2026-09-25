@@ -46,7 +46,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
@@ -71,6 +70,7 @@ import kotlin.math.max
 
 private const val DOUBLE_TAP_ZOOM = 2.5f
 private const val KEY_ZOOM_STEP = 1.25f
+private const val MAX_ANIMATED_JUMP_SCREENS = 3f
 
 private data class PlanInputs(
     val layout: DocumentLayout?,
@@ -101,19 +101,21 @@ class ViewportController internal constructor(
     /** Zooms around [focus] (screen px), or around the viewport center when `null`. */
     fun zoomTo(target: Float, focus: Offset? = null) {
         cancel()
+        // Clamped up front so an animation never spends frames pinned at the limit.
+        val clamped = target.coerceIn(state.math.minZoom, state.math.maxZoom)
         val start = state.transform
         val fx = focus?.x ?: (state.viewportWidth / 2f)
         val fy = focus?.y ?: (state.viewportHeight / 2f)
         if (!animationsEnabled) {
             state.onZoomStart()
-            state.zoomFrom(start, target, fx, fy)
+            state.zoomFrom(start, clamped, fx, fy)
             state.onZoomSettled()
             return
         }
         job = scope.launch {
             state.onZoomStart()
             try {
-                animate(start.zoom, target, animationSpec = tween(durationMillis = 220)) { value, _ ->
+                animate(start.zoom, clamped, animationSpec = tween(durationMillis = 220)) { value, _ ->
                     state.zoomFrom(start, value, fx, fy)
                 }
             } finally {
@@ -125,11 +127,14 @@ class ViewportController internal constructor(
     fun goToPage(page: Int) {
         cancel()
         val target = state.offsetForPage(page) ?: return
-        if (!animationsEnabled) {
+        val start = state.transform.offsetY
+        // Long jumps are instant: animating across many pages would plan (and start rendering)
+        // every page flown over, only to throw that work away a frame later.
+        val screen = state.viewportHeight / state.transform.zoom
+        if (!animationsEnabled || abs(target - start) > screen * MAX_ANIMATED_JUMP_SCREENS) {
             state.scrollToOffsetY(target)
             return
         }
-        val start = state.transform.offsetY
         job = scope.launch {
             animate(start, target, animationSpec = tween(durationMillis = 200)) { value, _ -> state.scrollToOffsetY(value) }
         }
@@ -144,8 +149,9 @@ class ViewportController internal constructor(
             AnimationState(initialValue = 0f, initialVelocity = speed).animateDecay(decay) {
                 val delta = value - last
                 last = value
-                // Stop as soon as an edge is reached: no frames are produced for nothing.
-                if (!state.panBy(delta * vx / speed, delta * vy / speed)) cancelAnimation()
+                // The first frame is at play time 0 (delta == 0): it must not count as "hit an edge".
+                // Afterwards, stop as soon as an edge is reached: no frames are produced for nothing.
+                if (delta != 0f && !state.panBy(delta * vx / speed, delta * vy / speed)) cancelAnimation()
             }
         }
     }
@@ -183,10 +189,8 @@ fun PdfViewport(
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
-    val viewConfiguration = LocalViewConfiguration.current
     val motion = controller
     val drawer = remember { PageDrawer() }
-    drawer.setBackground(background)
     val currentOnTap by rememberUpdatedState(onTap)
     val currentOnPositionChanged by rememberUpdatedState(onPositionChanged)
     val focusRequester = remember { FocusRequester() }
@@ -262,6 +266,8 @@ fun PdfViewport(
                             if (event.type != PointerEventType.Scroll) continue
                             val change = event.changes.firstOrNull() ?: continue
                             val scroll = change.scrollDelta
+                            // The wheel takes over from a running fling or animated jump/zoom.
+                            motion.cancel()
                             if (event.keyboardModifiers.isPointerCtrlPressed) {
                                 state.onZoomStart()
                                 state.zoomBy(if (scroll.y < 0f) 1.1f else 1f / 1.1f, change.position.x, change.position.y)
@@ -277,6 +283,7 @@ fun PdfViewport(
                 // Pan, fling and pinch in one detector so they never fight each other.
                 .pointerInput(state) {
                     val touchSlop = viewConfiguration.touchSlop
+                    val maxFlingVelocity = viewConfiguration.maximumFlingVelocity
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         motion.cancel()
@@ -317,11 +324,17 @@ fun PdfViewport(
                         if (zoomedThisGesture) state.onZoomSettled()
                         if (pastSlop && maxPointers == 1) {
                             val velocity = tracker.calculateVelocity()
-                            motion.fling(velocity.x, velocity.y)
+                            motion.fling(
+                                velocity.x.coerceIn(-maxFlingVelocity, maxFlingVelocity),
+                                velocity.y.coerceIn(-maxFlingVelocity, maxFlingVelocity),
+                            )
                         }
                     }
                 }
                 .drawBehind {
+                    // Applied here, not in composition: the lambda captures [background], so a change
+                    // replaces it and invalidates this draw (a composition-time paint change would not).
+                    drawer.setBackground(background)
                     val l = state.layout ?: return@drawBehind
                     // Reading these states here (draw phase) invalidates only drawing.
                     val t = state.transform
