@@ -6,6 +6,9 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.maogig.gigreader.core.ui.R
 import java.text.DateFormat
+import java.time.Instant
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import java.util.Date
 import java.util.Locale
 import kotlin.math.ln
@@ -26,15 +29,24 @@ fun formatFileSize(bytes: Long): String {
 fun progressLabel(progress: Float?): String? =
     progress?.let { stringResource(R.string.core_ui_percent_read, (it * 100).toInt()) }
 
-/** Relative day label for "last opened" ("Today", "Yesterday", "3 days ago", or a date). */
+/**
+ * Relative day label for "last opened" ("Today", "Yesterday", "3 days ago", or a date).
+ *
+ * Counts calendar days in the device time zone, not elapsed 24 h periods: something from 23:00
+ * yesterday is "Yesterday" at 08:00 today.
+ */
 @Composable
 @ReadOnlyComposable
 fun relativeDayLabel(epochMillis: Long, nowMillis: Long): String {
-    val days = ((nowMillis - epochMillis) / 86_400_000L).toInt()
+    val zone = ZoneId.systemDefault()
+    val days = ChronoUnit.DAYS.between(
+        Instant.ofEpochMilli(epochMillis).atZone(zone).toLocalDate(),
+        Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate(),
+    )
     return when {
-        days <= 0 -> stringResource(R.string.core_ui_today)
-        days == 1 -> stringResource(R.string.core_ui_yesterday)
-        days < 7 -> pluralStringResource(R.plurals.core_ui_days_ago, days, days)
+        days <= 0L -> stringResource(R.string.core_ui_today)
+        days == 1L -> stringResource(R.string.core_ui_yesterday)
+        days < 7L -> pluralStringResource(R.plurals.core_ui_days_ago, days.toInt(), days.toInt())
         else -> DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(epochMillis))
     }
 }

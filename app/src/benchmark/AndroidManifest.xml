@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Merged only into the "benchmark" build type (release-like, debug-signed) used by :benchmark. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application>
+        <!-- Lets Macrobenchmark / Perfetto read detailed traces of this non-debuggable build. -->
+        <profileable
+            android:shell="true"
+            tools:targetApi="29" />
+
+        <!--
+            Test-data hook for :benchmark (see SeedActivity): generates synthetic PDFs on the device
+            and imports them through the real ImportManager. Exported without intent filters so
+            `am start -n` (and Macrobenchmark's startActivityAndWait) can reach it; no launcher entry.
+        -->
+        <activity
+            android:name="com.maogig.gigreader.benchmark.SeedActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+    </application>
+</manifest>

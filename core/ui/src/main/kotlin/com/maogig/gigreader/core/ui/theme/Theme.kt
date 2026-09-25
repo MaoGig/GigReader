@@ -37,6 +37,7 @@ private val LightColors = lightColorScheme(
     onPrimary = Color.White,
     primaryContainer = Color(0xFFD6E3F4),
     onPrimaryContainer = Color(0xFF0E2238),
+    inversePrimary = InkLight,
     secondary = Leather,
     onSecondary = Color.White,
     secondaryContainer = Color(0xFFF3E1D4),
@@ -58,6 +59,9 @@ private val LightColors = lightColorScheme(
     surfaceContainerHighest = Color(0xFFE2DDD6),
     outline = Color(0xFF7C776F),
     outlineVariant = Color(0xFFCFC9C0),
+    // Snackbars (undo) and tooltips: without these they fall back to the baseline purple scheme.
+    inverseSurface = Color(0xFF31302D),
+    inverseOnSurface = Color(0xFFF3F0EB),
     error = Color(0xFFB3261E),
     onError = Color.White,
 )
@@ -67,6 +71,7 @@ private val DarkColors = darkColorScheme(
     onPrimary = Color(0xFF0E2238),
     primaryContainer = Color(0xFF28405C),
     onPrimaryContainer = Color(0xFFD6E3F4),
+    inversePrimary = Ink,
     secondary = LeatherLight,
     onSecondary = Color(0xFF3F2211),
     secondaryContainer = Color(0xFF5A3A25),
@@ -88,6 +93,8 @@ private val DarkColors = darkColorScheme(
     surfaceContainerHighest = Color(0xFF343538),
     outline = Color(0xFF958F86),
     outlineVariant = Color(0xFF4A4741),
+    inverseSurface = Color(0xFFE6E2DC),
+    inverseOnSurface = Color(0xFF31302D),
     error = Color(0xFFF2B8B5),
     onError = Color(0xFF601410),
 )

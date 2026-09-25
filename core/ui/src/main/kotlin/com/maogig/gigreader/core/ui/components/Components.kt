@@ -120,20 +120,23 @@ fun TextInputDialog(
                 value = value,
                 onValueChange = { value = it },
                 singleLine = true,
-                label = label?.let { { Text(it) } },
+                label = if (label != null) { { Text(label) } } else null,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { if (canConfirm) onConfirm(value.text.trim()) }),
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(focus),
             )
+            // Must live inside the dialog's content: the dialog window composes its content in a
+            // separate composition, so an effect in the caller could run before the text field (and
+            // its focusRequester) exists and crash with "FocusRequester is not initialized".
+            LaunchedEffect(Unit) { focus.requestFocus() }
         },
         confirmButton = {
             TextButton(enabled = canConfirm, onClick = { onConfirm(value.text.trim()) }) { Text(confirmLabel) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.core_ui_cancel)) } },
     )
-    LaunchedEffect(Unit) { focus.requestFocus() }
 }
 
 @Composable

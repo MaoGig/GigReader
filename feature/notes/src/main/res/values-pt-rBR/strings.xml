@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="notes_back">Voltar</string>
+    <string name="notes_title_placeholder">Título</string>
+    <string name="notes_body_placeholder">Comece a escrever…</string>
+    <string name="notes_status_saving">Salvando…</string>
+    <string name="notes_status_saved">Salvo</string>
+    <string name="notes_status_failed">Não foi possível salvar</string>
+    <string name="notes_missing_title">Nota não encontrada</string>
+    <string name="notes_missing_message">Esta nota pode ter sido excluída.</string>
+</resources>

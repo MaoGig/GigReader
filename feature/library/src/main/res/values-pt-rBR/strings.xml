@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Biblioteca / Início -->
+    <string name="library_title">Biblioteca</string>
+    <string name="library_search_hint">Pesquisar na biblioteca</string>
+    <string name="library_search_clear">Limpar pesquisa</string>
+    <string name="library_meta_separator">" · "</string>
+
+    <string name="library_section_continue_reading">Continuar lendo</string>
+    <string name="library_section_favorites">Favoritos</string>
+    <string name="library_section_folders">Pastas</string>
+    <string name="library_section_documents">Documentos</string>
+    <string name="library_section_quick_notes">Notas rápidas</string>
+    <string name="library_section_notes">Notas</string>
+
+    <string name="library_page_of">Página %1$d / %2$d</string>
+    <string name="library_page_single">Página %1$d</string>
+    <string name="library_not_opened">Ainda não aberto</string>
+    <plurals name="library_pages">
+        <item quantity="one">%d página</item>
+        <item quantity="many">%d páginas</item>
+        <item quantity="other">%d páginas</item>
+    </plurals>
+    <plurals name="library_folder_items">
+        <item quantity="one">%d item</item>
+        <item quantity="many">%d itens</item>
+        <item quantity="other">%d itens</item>
+    </plurals>
+    <string name="library_folder_empty">Vazia</string>
+    <string name="library_untitled_note">Nota sem título</string>
+    <string name="library_note_empty_preview">Ainda sem conteúdo</string>
+    <string name="library_favorite_badge">Favorito</string>
+
+    <!-- Ações de criação -->
+    <string name="library_action_new">Novo</string>
+    <string name="library_action_import">Importar PDFs</string>
+    <string name="library_action_new_folder">Nova pasta</string>
+    <string name="library_action_new_note">Nova nota rápida</string>
+    <string name="library_new_folder_title">Nova pasta</string>
+    <string name="library_new_folder_default">Nova pasta</string>
+    <string name="library_new_folder_label">Nome da pasta</string>
+    <string name="library_create">Criar</string>
+    <string name="library_rename_title">Renomear</string>
+    <string name="library_rename_label">Nome</string>
+    <string name="library_rename_confirm">Renomear</string>
+
+    <!-- Menu do item -->
+    <string name="library_more_options">Mais opções para %1$s</string>
+    <string name="library_menu_open">Abrir</string>
+    <string name="library_menu_rename">Renomear</string>
+    <string name="library_menu_move">Mover para…</string>
+    <string name="library_menu_favorite">Adicionar aos favoritos</string>
+    <string name="library_menu_unfavorite">Remover dos favoritos</string>
+    <string name="library_menu_share">Compartilhar</string>
+    <string name="library_menu_info">Informações</string>
+    <string name="library_menu_duplicate">Duplicar</string>
+    <string name="library_menu_delete">Mover para a lixeira</string>
+    <string name="library_click_open">Abrir</string>
+    <string name="library_click_select">Selecionar</string>
+    <string name="library_click_toggle">Alternar seleção</string>
+
+    <!-- Opções de visualização -->
+    <string name="library_view_options">Opções de visualização</string>
+    <string name="library_more">Mais opções</string>
+    <string name="library_layout_header">Layout</string>
+    <string name="library_layout_grid">Grade</string>
+    <string name="library_layout_list">Lista</string>
+    <string name="library_layout_compact">Compacto</string>
+    <string name="library_sort_header">Ordenar por</string>
+    <string name="library_sort_name">Nome</string>
+    <string name="library_sort_created">Data de inclusão</string>
+    <string name="library_sort_last_opened">Última abertura</string>
+    <string name="library_sort_modified">Data de modificação</string>
+    <string name="library_sort_size">Tamanho</string>
+    <string name="library_sort_type">Tipo</string>
+    <string name="library_sort_ascending">Crescente</string>
+    <string name="library_sort_descending">Decrescente</string>
+    <string name="library_filter_header">Mostrar</string>
+    <string name="library_filter_all">Todos os itens</string>
+    <string name="library_filter_pdfs">PDFs</string>
+    <string name="library_filter_notes">Notas</string>
+    <string name="library_filter_annotated">Com anotações</string>
+    <string name="library_filter_favorites">Favoritos</string>
+    <string name="library_filter_recent">Abertos recentemente</string>
+    <string name="library_filter_active">Mostrando: %1$s</string>
+    <string name="library_filter_clear">Limpar filtro</string>
+
+    <!-- Navegação -->
+    <string name="library_trash">Lixeira</string>
+    <string name="library_settings">Configurações</string>
+    <string name="library_navigate_up">Voltar</string>
+    <string name="library_breadcrumb_root">Biblioteca</string>
+    <string name="library_rail_library">Biblioteca</string>
+    <string name="library_rail_favorites">Favoritos</string>
+    <string name="library_rail_notes">Notas</string>
+
+    <!-- Seleção -->
+    <plurals name="library_selected_count">
+        <item quantity="one">%d selecionado</item>
+        <item quantity="many">%d selecionados</item>
+        <item quantity="other">%d selecionados</item>
+    </plurals>
+    <string name="library_selection_clear">Limpar seleção</string>
+    <string name="library_select_all">Selecionar tudo</string>
+    <string name="library_selection_move">Mover</string>
+    <string name="library_selection_favorite">Adicionar aos favoritos</string>
+    <string name="library_selection_unfavorite">Remover dos favoritos</string>
+    <string name="library_selection_share">Compartilhar</string>
+    <string name="library_selection_delete">Mover para a lixeira</string>
+
+    <!-- Diálogo de mover -->
+    <string name="library_move_title">Mover para</string>
+    <string name="library_move_root">Biblioteca (raiz)</string>
+
+    <!-- Diálogo de informações -->
+    <string name="library_info_pages">Páginas</string>
+    <string name="library_info_size">Tamanho do arquivo</string>
+    <string name="library_info_created">Adicionado</string>
+    <string name="library_info_modified">Modificado</string>
+    <string name="library_info_last_opened">Última abertura</string>
+    <string name="library_info_annotations">Anotações</string>
+    <string name="library_info_progress">Progresso de leitura</string>
+    <string name="library_info_never">Nunca</string>
+    <string name="library_info_unknown">Desconhecido</string>
+    <string name="library_info_not_started">Não iniciado</string>
+    <string name="library_close">Fechar</string>
+
+    <!-- Estados vazios -->
+    <string name="library_empty_title">Sua biblioteca está vazia</string>
+    <string name="library_empty_message">Importe seu primeiro PDF ou crie uma nota rápida.</string>
+    <string name="library_empty_folder_title">Esta pasta está vazia</string>
+    <string name="library_empty_folder_message">Importe PDFs para cá ou crie uma subpasta para organizar seus documentos.</string>
+    <string name="library_no_results_title">Nenhum resultado</string>
+    <string name="library_no_results_message">Nada na sua biblioteca corresponde a “%1$s”.</string>
+    <string name="library_empty_filter_title">Nada para mostrar</string>
+    <string name="library_empty_filter_message">Nenhum item aqui corresponde a este filtro.</string>
+
+    <!-- Importação -->
+    <string name="library_import_current">Importando %1$s</string>
+    <string name="library_import_preparing">Preparando importação…</string>
+    <string name="library_import_count">%1$d de %2$d</string>
+    <string name="library_import_cancel">Cancelar</string>
+
+    <!-- Snackbars -->
+    <string name="library_action_undo">Desfazer</string>
+    <string name="library_action_open">Abrir</string>
+    <string name="library_msg_imported">%1$s importado</string>
+    <plurals name="library_msg_imported_many">
+        <item quantity="one">%d documento importado</item>
+        <item quantity="many">%d documentos importados</item>
+        <item quantity="other">%d documentos importados</item>
+    </plurals>
+    <string name="library_msg_duplicate">Já está na sua biblioteca</string>
+    <string name="library_msg_duplicate_in_trash">Já está na sua biblioteca (na lixeira)</string>
+    <plurals name="library_msg_duplicate_many">
+        <item quantity="one">%d arquivo já estava na sua biblioteca</item>
+        <item quantity="many">%d arquivos já estavam na sua biblioteca</item>
+        <item quantity="other">%d arquivos já estavam na sua biblioteca</item>
+    </plurals>
+    <string name="library_msg_failed_not_pdf">%1$s não é um PDF</string>
+    <string name="library_msg_failed_password">%1$s: PDFs protegidos por senha ainda não são suportados</string>
+    <string name="library_msg_failed_corrupted">%1$s parece estar corrompido ou usa um recurso de PDF não suportado</string>
+    <string name="library_msg_failed_no_space">Não há espaço suficiente para importar %1$s</string>
+    <string name="library_msg_failed_unreadable">Não foi possível ler %1$s</string>
+    <plurals name="library_msg_failed_many">
+        <item quantity="one">%d arquivo não pôde ser importado</item>
+        <item quantity="many">%d arquivos não puderam ser importados</item>
+        <item quantity="other">%d arquivos não puderam ser importados</item>
+    </plurals>
+    <plurals name="library_msg_moved">
+        <item quantity="one">%d item movido</item>
+        <item quantity="many">%d itens movidos</item>
+        <item quantity="other">%d itens movidos</item>
+    </plurals>
+    <string name="library_msg_move_cycle">Uma pasta não pode ser movida para dentro dela mesma ou de uma subpasta</string>
+    <plurals name="library_msg_trashed">
+        <item quantity="one">%d item movido para a lixeira</item>
+        <item quantity="many">%d itens movidos para a lixeira</item>
+        <item quantity="other">%d itens movidos para a lixeira</item>
+    </plurals>
+    <plurals name="library_msg_favorited">
+        <item quantity="one">%d item adicionado aos favoritos</item>
+        <item quantity="many">%d itens adicionados aos favoritos</item>
+        <item quantity="other">%d itens adicionados aos favoritos</item>
+    </plurals>
+    <plurals name="library_msg_unfavorited">
+        <item quantity="one">%d item removido dos favoritos</item>
+        <item quantity="many">%d itens removidos dos favoritos</item>
+        <item quantity="other">%d itens removidos dos favoritos</item>
+    </plurals>
+    <string name="library_msg_renamed">Renomeado</string>
+    <string name="library_msg_duplicated">Cópia criada</string>
+    <string name="library_msg_share_nothing">Só é possível compartilhar PDFs</string>
+    <string name="library_msg_share_failed">Não foi possível compartilhar estes arquivos</string>
+    <string name="library_msg_error">Algo deu errado. Tente novamente.</string>
+    <string name="library_share_title">Compartilhar PDFs</string>
+
+    <!-- Arrastar e soltar -->
+    <plurals name="library_drag_count">
+        <item quantity="one">%d item</item>
+        <item quantity="many">%d itens</item>
+        <item quantity="other">%d itens</item>
+    </plurals>
+    <string name="library_drop_favorites">Solte aqui para adicionar aos favoritos</string>
+
+    <!-- Lixeira -->
+    <string name="library_trash_title">Lixeira</string>
+    <string name="library_trash_back">Voltar</string>
+    <string name="library_trash_empty_action">Esvaziar lixeira</string>
+    <string name="library_trash_restore">Restaurar %1$s</string>
+    <string name="library_trash_delete_forever">Excluir %1$s para sempre</string>
+    <string name="library_trash_deleted_today">Excluído hoje</string>
+    <plurals name="library_trash_deleted_days_ago">
+        <item quantity="one">Excluído há %d dia</item>
+        <item quantity="many">Excluído há %d dias</item>
+        <item quantity="other">Excluído há %d dias</item>
+    </plurals>
+    <plurals name="library_trash_expires_in">
+        <item quantity="one">removido definitivamente em %d dia</item>
+        <item quantity="many">removido definitivamente em %d dias</item>
+        <item quantity="other">removido definitivamente em %d dias</item>
+    </plurals>
+    <string name="library_trash_expires_soon">removido definitivamente em breve</string>
+    <string name="library_trash_empty_title">A lixeira está vazia</string>
+    <string name="library_trash_empty_message">Itens excluídos ficam aqui por 30 dias antes de serem removidos definitivamente.</string>
+    <string name="library_trash_confirm_delete_title">Excluir para sempre?</string>
+    <string name="library_trash_confirm_delete_message">“%1$s” será excluído permanentemente. Isso não pode ser desfeito.</string>
+    <string name="library_trash_confirm_delete_action">Excluir para sempre</string>
+    <string name="library_trash_confirm_empty_title">Esvaziar a lixeira?</string>
+    <string name="library_trash_confirm_empty_message">Tudo o que está na lixeira será excluído permanentemente. Isso não pode ser desfeito.</string>
+    <string name="library_trash_confirm_empty_action">Esvaziar lixeira</string>
+    <string name="library_trash_kind_folder">Pasta</string>
+    <string name="library_trash_kind_document">Documento PDF</string>
+    <string name="library_trash_kind_note">Nota</string>
+    <string name="library_msg_restored">%1$s restaurado</string>
+    <string name="library_msg_deleted_forever">Excluído para sempre</string>
+    <string name="library_msg_trash_emptied">Lixeira esvaziada</string>
+</resources>
