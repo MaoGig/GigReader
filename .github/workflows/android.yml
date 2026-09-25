@@ -24,20 +24,24 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      # Gradle is provisioned by the action (same version as gradle/wrapper/gradle-wrapper.properties),
+      # so CI does not depend on the binary wrapper jar.
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "9.6.0"
 
       - name: Unit tests (JVM + Robolectric)
-        run: ./gradlew --stacktrace --continue test
+        run: gradle --stacktrace --continue test
 
       # Run even when an earlier step failed, so one CI round trip reports every failure.
       - name: Assemble debug APK
         if: ${{ !cancelled() }}
-        run: ./gradlew --stacktrace :app:assembleDebug
+        run: gradle --stacktrace :app:assembleDebug
 
       - name: Lint
         if: ${{ !cancelled() }}
-        run: ./gradlew --stacktrace --continue lintDebug
+        run: gradle --stacktrace --continue lintDebug
 
       - name: Upload test and lint reports
         if: always()

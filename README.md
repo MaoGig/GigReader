@@ -47,7 +47,9 @@ benchmark           Macrobenchmark + Baseline Profile
 
 ## Build
 
-Requer JDK 17+ (recomendado 21) e o Android SDK com a plataforma 37.
+Requer JDK 17+ (recomendado 21) e o Android SDK com a plataforma 37. O Android Studio usa
+`gradle/wrapper/gradle-wrapper.properties` diretamente. Para usar `./gradlew` na linha de comando,
+gere o jar do wrapper uma vez: `gradle wrapper --gradle-version 9.6.0`.
 
 ```bash
 ./gradlew :app:assembleDebug          # APK de debug
