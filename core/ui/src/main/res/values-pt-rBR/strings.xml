@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="core_ui_cancel">Cancelar</string>
+    <string name="core_ui_today">Hoje</string>
+    <string name="core_ui_yesterday">Ontem</string>
+    <plurals name="core_ui_days_ago">
+        <item quantity="one">há %d dia</item>
+        <item quantity="many">há %d dias</item>
+        <item quantity="other">há %d dias</item>
+    </plurals>
+    <string name="core_ui_percent_read">%d%% lido</string>
+</resources>

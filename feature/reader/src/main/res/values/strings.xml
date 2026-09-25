@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reader_back">Back</string>
+    <string name="reader_more_options">More options</string>
+    <string name="reader_go_to_page">Go to page</string>
+    <string name="reader_go">Go</string>
+    <string name="reader_cancel">Cancel</string>
+    <string name="reader_page_range">Page (1–%1$d)</string>
+    <string name="reader_page_indicator">%1$d / %2$d</string>
+    <string name="reader_page_description">Page %1$d of %2$d</string>
+    <string name="reader_next_page">Next page</string>
+    <string name="reader_previous_page">Previous page</string>
+    <string name="reader_add_to_library">Add to library</string>
+    <string name="reader_added_to_library">Adding to your library…</string>
+    <string name="reader_error_open_title">Unable to open this PDF</string>
+    <string name="reader_error_not_found_title">Document not found</string>
+    <string name="reader_error_not_found">This document is no longer in your library.</string>
+    <string name="reader_error_file_missing">The file for this document is missing from the device.</string>
+    <string name="reader_error_password">Password-protected PDFs are not supported yet.</string>
+    <string name="reader_error_corrupted">The document may be corrupted or use an unsupported PDF feature.</string>
+    <string name="reader_error_unreadable">The file could not be read. It may have been moved, or the app that shared it no longer allows access.</string>
+    <string name="reader_error_memory">There is not enough memory to open this document right now. Close other apps and try again.</string>
+</resources>

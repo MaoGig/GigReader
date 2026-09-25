@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_shortcut_new_note">Nova nota</string>
+    <string name="app_shortcut_new_note_long">Nova nota rápida</string>
+</resources>

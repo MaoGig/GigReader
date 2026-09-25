@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A page with a folded corner and one amber highlight: "your documents, annotated". -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFF8F6F2"
+        android:pathData="M39,30 L62,30 L72,40 L72,77 Q72,80 69,80 L39,80 Q36,80 36,77 L36,33 Q36,30 39,30 Z" />
+    <path
+        android:fillColor="#FFD6E3F4"
+        android:pathData="M62,30 L72,40 L65,40 Q62,40 62,37 Z" />
+    <path
+        android:fillColor="#FF9FB3CC"
+        android:pathData="M42,47 L66,47 L66,49.5 L42,49.5 Z M42,54 L66,54 L66,56.5 L42,56.5 Z M42,70 L60,70 L60,72.5 L42,72.5 Z" />
+    <path
+        android:fillColor="#FFF2C766"
+        android:pathData="M40.5,59.5 L67.5,59.5 L67.5,66 L40.5,66 Z" />
+    <path
+        android:fillColor="#FF2E4A6B"
+        android:pathData="M42,61.5 L63,61.5 L63,64 L42,64 Z" />
+</vector>
