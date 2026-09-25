@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Package visibility (API 30+): the self-instrumenting test resolves and launches the target. -->
+    <queries>
+        <package android:name="com.maogig.gigreader" />
+    </queries>
+</manifest>

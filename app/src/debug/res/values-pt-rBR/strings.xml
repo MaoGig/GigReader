@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tela de diagnóstico do desenvolvedor, somente debug (app/src/debug). Não vai para o release. -->
+<resources>
+    <string name="app_diagnostics_title">Diagnóstico</string>
+    <string name="app_diagnostics_back">Voltar</string>
+    <string name="app_diagnostics_refresh">Atualizar</string>
+    <string name="app_diagnostics_trim_caches">Liberar caches</string>
+    <string name="app_diagnostics_force_gc">Forçar GC</string>
+    <string name="app_diagnostics_status">Status</string>
+    <string name="app_diagnostics_reading">Lendo…</string>
+
+    <string name="app_diagnostics_section_memory">Memória</string>
+    <string name="app_diagnostics_java_heap">Heap Java (usado / máximo)</string>
+    <string name="app_diagnostics_native_heap">Heap nativo (alocado)</string>
+    <string name="app_diagnostics_total_pss">PSS total</string>
+    <string name="app_diagnostics_unavailable">Indisponível</string>
+
+    <string name="app_diagnostics_section_render">Pipelines de render (%1$d)</string>
+    <string name="app_diagnostics_open_documents">Documentos abertos</string>
+    <string name="app_diagnostics_none">Nenhum</string>
+    <string name="app_diagnostics_document">Documento %1$d</string>
+    <string name="app_diagnostics_cached_bitmaps">Bitmaps em cache</string>
+    <string name="app_diagnostics_cache_used_budget">Cache (usado / orçamento)</string>
+    <string name="app_diagnostics_bitmap_pool">Pool de bitmaps</string>
+    <string name="app_diagnostics_hits_misses">Acertos / falhas</string>
+    <string name="app_diagnostics_renders_completed">Renders concluídos</string>
+    <string name="app_diagnostics_skipped_stale">Descartados por obsolescência</string>
+    <string name="app_diagnostics_last_render">Último render</string>
+    <string name="app_diagnostics_failed_pages">Páginas com falha</string>
+    <string name="app_diagnostics_worker">Worker</string>
+    <string name="app_diagnostics_busy">Ocupado</string>
+    <string name="app_diagnostics_idle">Ocioso</string>
+
+    <string name="app_diagnostics_section_storage">Armazenamento</string>
+    <string name="app_diagnostics_database">Banco de dados</string>
+    <string name="app_diagnostics_no_file">Ainda sem arquivo</string>
+    <string name="app_diagnostics_with_wal">%1$s + WAL %2$s</string>
+    <string name="app_diagnostics_db_open">Aberto</string>
+    <string name="app_diagnostics_db_not_opened">Não aberto</string>
+    <string name="app_diagnostics_library_files">Arquivos da biblioteca</string>
+    <string name="app_diagnostics_covers_cache">Cache de capas</string>
+
+    <string name="app_diagnostics_section_work">Trabalho em segundo plano</string>
+    <string name="app_diagnostics_import_queue">Fila de importação</string>
+    <string name="app_diagnostics_import_not_created">Ocioso (não criado nesta sessão)</string>
+    <string name="app_diagnostics_search_index">Índice de busca</string>
+    <string name="app_diagnostics_not_built">Ainda não criado</string>
+
+    <string name="app_diagnostics_section_engine">Engine de PDF</string>
+    <string name="app_diagnostics_engine_id">ID da engine</string>
+    <string name="app_diagnostics_taken_at">Leitura feita às</string>
+</resources>

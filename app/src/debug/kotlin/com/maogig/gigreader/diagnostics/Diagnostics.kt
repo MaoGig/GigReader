@@ -1,5 +1,6 @@
 package com.maogig.gigreader.diagnostics
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -39,6 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.maogig.gigreader.R
 import com.maogig.gigreader.core.data.importer.ImportProgress
 import com.maogig.gigreader.core.pdf.render.RenderStats
 import com.maogig.gigreader.core.ui.components.SectionHeader
@@ -48,8 +51,8 @@ import com.maogig.gigreader.di.AppContainer
 import java.text.DateFormat
 import java.util.Date
 
-// Developer tool, debug builds only (plan §67). Text is intentionally hardcoded English: this is
-// the single exception to the string-resources rule. The release source set has a no-op twin.
+// Developer tool, debug builds only (docs/ARCHITECTURE.md §12, item 7). Its text lives in
+// app/src/debug/res (en + pt-BR). The release source set has a no-op twin with the same signatures.
 
 /** Debug builds ship the diagnostics screen. */
 val diagnosticsAvailable: Boolean = true
@@ -80,10 +83,18 @@ private fun DiagnosticsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(text = "Diagnostics", modifier = Modifier.semantics { heading() }) },
+                title = {
+                    Text(
+                        text = stringResource(R.string.app_diagnostics_title),
+                        modifier = Modifier.semantics { heading() },
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.app_diagnostics_back),
+                        )
                     }
                 },
             )
@@ -103,7 +114,9 @@ private fun DiagnosticsScreen(
                 )
             }
             if (snapshot == null) {
-                item(key = "reading", contentType = "stat") { StatRow(label = "Status", value = "reading…") }
+                stat(key = "reading", label = R.string.app_diagnostics_status) {
+                    stringResource(R.string.app_diagnostics_reading)
+                }
             } else {
                 snapshotItems(snapshot)
             }
@@ -112,14 +125,23 @@ private fun DiagnosticsScreen(
 }
 
 private fun LazyListScope.snapshotItems(s: DiagnosticsSnapshot) {
-    header(key = "h_memory", title = "Memory")
-    stat(key = "java_heap", label = "Java heap (used / max)", value = "${formatFileSize(s.javaHeapUsedBytes)} / ${formatFileSize(s.javaHeapMaxBytes)}")
-    stat(key = "native_heap", label = "Native heap (allocated)", value = formatFileSize(s.nativeHeapAllocatedBytes))
-    stat(key = "pss", label = "Total PSS", value = s.totalPssKb?.let { formatFileSize(it * 1024L) } ?: "unavailable")
+    header(key = "h_memory") { stringResource(R.string.app_diagnostics_section_memory) }
+    stat(key = "java_heap", label = R.string.app_diagnostics_java_heap) {
+        "${formatFileSize(s.javaHeapUsedBytes)} / ${formatFileSize(s.javaHeapMaxBytes)}"
+    }
+    stat(key = "native_heap", label = R.string.app_diagnostics_native_heap) {
+        formatFileSize(s.nativeHeapAllocatedBytes)
+    }
+    stat(key = "pss", label = R.string.app_diagnostics_total_pss) {
+        val pssKb = s.totalPssKb
+        if (pssKb != null) formatFileSize(pssKb * 1024L) else stringResource(R.string.app_diagnostics_unavailable)
+    }
 
-    header(key = "h_render", title = "Render pipelines (${s.pipelines.size})")
+    header(key = "h_render") { stringResource(R.string.app_diagnostics_section_render, s.pipelines.size) }
     if (s.pipelines.isEmpty()) {
-        stat(key = "render_none", label = "Open documents", value = "none")
+        stat(key = "render_none", label = R.string.app_diagnostics_open_documents) {
+            stringResource(R.string.app_diagnostics_none)
+        }
     } else {
         itemsIndexed(
             items = s.pipelines,
@@ -130,28 +152,30 @@ private fun LazyListScope.snapshotItems(s: DiagnosticsSnapshot) {
         }
     }
 
-    header(key = "h_storage", title = "Storage")
-    stat(key = "database", label = "Database", value = databaseText(s))
-    stat(key = "library", label = "Library files", value = formatFileSize(s.libraryBytes))
-    stat(key = "covers", label = "Covers cache", value = formatFileSize(s.coversBytes))
+    header(key = "h_storage") { stringResource(R.string.app_diagnostics_section_storage) }
+    stat(key = "database", label = R.string.app_diagnostics_database) { databaseText(s) }
+    stat(key = "library", label = R.string.app_diagnostics_library_files) { formatFileSize(s.libraryBytes) }
+    stat(key = "covers", label = R.string.app_diagnostics_covers_cache) { formatFileSize(s.coversBytes) }
 
-    header(key = "h_work", title = "Background work")
-    stat(key = "import", label = "Import queue", value = importText(s.importProgress))
-    stat(key = "search", label = "Search index", value = "not built yet")
+    header(key = "h_work") { stringResource(R.string.app_diagnostics_section_work) }
+    stat(key = "import", label = R.string.app_diagnostics_import_queue) { importText(s.importProgress) }
+    stat(key = "search", label = R.string.app_diagnostics_search_index) {
+        stringResource(R.string.app_diagnostics_not_built)
+    }
 
-    header(key = "h_engine", title = "PDF engine")
-    stat(key = "engine", label = "Engine id", value = s.pdfEngineId)
+    header(key = "h_engine") { stringResource(R.string.app_diagnostics_section_engine) }
+    stat(key = "engine", label = R.string.app_diagnostics_engine_id) { s.pdfEngineId }
 
     val takenAt = DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(s.takenAtMillis))
-    stat(key = "taken_at", label = "Snapshot taken at", value = takenAt)
+    stat(key = "taken_at", label = R.string.app_diagnostics_taken_at) { takenAt }
 }
 
-private fun LazyListScope.header(key: String, title: String) {
-    item(key = key, contentType = "header") { SectionHeader(title = title) }
+private fun LazyListScope.header(key: String, title: @Composable () -> String) {
+    item(key = key, contentType = "header") { SectionHeader(title = title()) }
 }
 
-private fun LazyListScope.stat(key: String, label: String, value: String) {
-    item(key = key, contentType = "stat") { StatRow(label = label, value = value) }
+private fun LazyListScope.stat(key: String, @StringRes label: Int, value: @Composable () -> String) {
+    item(key = key, contentType = "stat") { StatRow(label = stringResource(label), value = value()) }
 }
 
 @Composable
@@ -168,9 +192,15 @@ private fun ActionsRow(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        FilledTonalButton(onClick = onRefresh, enabled = !busy) { Text("Refresh") }
-        OutlinedButton(onClick = onTrimCaches, enabled = !busy) { Text("Trim caches") }
-        OutlinedButton(onClick = onForceGc, enabled = !busy) { Text("Force GC") }
+        FilledTonalButton(onClick = onRefresh, enabled = !busy) {
+            Text(stringResource(R.string.app_diagnostics_refresh))
+        }
+        OutlinedButton(onClick = onTrimCaches, enabled = !busy) {
+            Text(stringResource(R.string.app_diagnostics_trim_caches))
+        }
+        OutlinedButton(onClick = onForceGc, enabled = !busy) {
+            Text(stringResource(R.string.app_diagnostics_force_gc))
+        }
     }
 }
 
@@ -187,24 +217,49 @@ private fun PipelineCard(index: Int, stats: RenderStats) {
     ) {
         Column(modifier = Modifier.padding(vertical = 8.dp)) {
             Text(
-                text = "Document ${index + 1}",
+                text = stringResource(R.string.app_diagnostics_document, index + 1),
                 style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier
                     .padding(horizontal = 16.dp, vertical = 4.dp)
                     .semantics { heading() },
             )
-            StatRow(label = "Cached bitmaps", value = stats.cachedBitmaps.toString())
             StatRow(
-                label = "Cache (used / budget)",
+                label = stringResource(R.string.app_diagnostics_cached_bitmaps),
+                value = stats.cachedBitmaps.toString(),
+            )
+            StatRow(
+                label = stringResource(R.string.app_diagnostics_cache_used_budget),
                 value = "${formatFileSize(stats.cacheBytes)} / ${formatFileSize(stats.cacheBudgetBytes)}",
             )
-            StatRow(label = "Bitmap pool", value = formatFileSize(stats.poolBytes))
-            StatRow(label = "Hits / misses", value = "${stats.hits} / ${stats.misses} ($hitRate%)")
-            StatRow(label = "Renders completed", value = stats.rendersCompleted.toString())
-            StatRow(label = "Skipped as stale", value = stats.rendersSkippedStale.toString())
-            StatRow(label = "Last render", value = "${stats.lastRenderMillis} ms")
-            StatRow(label = "Failed pages", value = stats.failedPages.toString())
-            StatRow(label = "Worker", value = if (stats.busy) "busy" else "idle")
+            StatRow(
+                label = stringResource(R.string.app_diagnostics_bitmap_pool),
+                value = formatFileSize(stats.poolBytes),
+            )
+            StatRow(
+                label = stringResource(R.string.app_diagnostics_hits_misses),
+                value = "${stats.hits} / ${stats.misses} ($hitRate%)",
+            )
+            StatRow(
+                label = stringResource(R.string.app_diagnostics_renders_completed),
+                value = stats.rendersCompleted.toString(),
+            )
+            StatRow(
+                label = stringResource(R.string.app_diagnostics_skipped_stale),
+                value = stats.rendersSkippedStale.toString(),
+            )
+            // "ms" is an international unit (like the sizes from formatFileSize): no translation.
+            StatRow(
+                label = stringResource(R.string.app_diagnostics_last_render),
+                value = "${stats.lastRenderMillis} ms",
+            )
+            StatRow(
+                label = stringResource(R.string.app_diagnostics_failed_pages),
+                value = stats.failedPages.toString(),
+            )
+            StatRow(
+                label = stringResource(R.string.app_diagnostics_worker),
+                value = stringResource(if (stats.busy) R.string.app_diagnostics_busy else R.string.app_diagnostics_idle),
+            )
         }
     }
 }
@@ -234,16 +289,24 @@ private fun StatRow(label: String, value: String) {
     }
 }
 
+@Composable
 private fun databaseText(s: DiagnosticsSnapshot): String {
-    val size = s.databaseBytes?.let { formatFileSize(it) } ?: "no file yet"
-    val wal = s.databaseWalBytes?.let { " + WAL ${formatFileSize(it)}" } ?: ""
-    val open = if (s.databaseOpen) "open" else "not opened"
-    return "$size$wal · $open"
+    val size = s.databaseBytes?.let { formatFileSize(it) } ?: stringResource(R.string.app_diagnostics_no_file)
+    val walBytes = s.databaseWalBytes
+    val files = if (walBytes != null) {
+        stringResource(R.string.app_diagnostics_with_wal, size, formatFileSize(walBytes))
+    } else {
+        size
+    }
+    val open = stringResource(if (s.databaseOpen) R.string.app_diagnostics_db_open else R.string.app_diagnostics_db_not_opened)
+    return "$files · $open"
 }
 
+@Composable
 private fun importText(progress: ImportProgress?): String = when {
-    progress == null -> "idle (not created this session)"
-    !progress.active -> "idle"
+    progress == null -> stringResource(R.string.app_diagnostics_import_not_created)
+    !progress.active -> stringResource(R.string.app_diagnostics_idle)
+    // Counts, the file name and sizes only: nothing to translate.
     else -> buildString {
         append(progress.completed).append('/').append(progress.total)
         progress.currentName?.let { append(" · ").append(it) }
