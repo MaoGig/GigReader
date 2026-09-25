@@ -20,6 +20,7 @@ fun copyAndHash(
     isCancelled: () -> Boolean = { false },
     onProgress: (Long) -> Unit = {},
 ): CopyResult {
+    require(bufferSize > 0) { "bufferSize must be > 0" }
     val digest = MessageDigest.getInstance("SHA-256")
     val buffer = ByteArray(bufferSize)
     var total = 0L
@@ -43,6 +44,7 @@ fun copyAndHash(
 
 /** Hash of a stream without copying it (used to check duplicates of files already on disk). */
 fun sha256(input: InputStream, bufferSize: Int = 256 * 1024): String {
+    require(bufferSize > 0) { "bufferSize must be > 0" }
     val digest = MessageDigest.getInstance("SHA-256")
     val buffer = ByteArray(bufferSize)
     while (true) {

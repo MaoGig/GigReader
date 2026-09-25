@@ -57,6 +57,9 @@ class UndoManager(private val capacity: Int = 50) {
         try {
             action.undo()
             redoStack.addLast(action)
+        } catch (e: Exception) {
+            undoStack.addLast(action) // keep it so the user can retry
+            throw e
         } finally {
             publish()
         }
@@ -68,6 +71,9 @@ class UndoManager(private val capacity: Int = 50) {
         try {
             action.redo()
             undoStack.addLast(action)
+        } catch (e: Exception) {
+            redoStack.addLast(action)
+            throw e
         } finally {
             publish()
         }

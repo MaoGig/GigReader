@@ -74,12 +74,19 @@ fun List<LibraryItem>.sortedForDisplay(order: SortOrder): List<LibraryItem> {
         SortField.NAME -> byName
         SortField.CREATED -> compareBy { it.createdAt }
         SortField.MODIFIED -> compareBy { it.modifiedAt }
-        SortField.LAST_OPENED -> compareBy { (it as? LibraryItem.DocumentEntry)?.lastOpenedAt ?: 0L }
+        SortField.LAST_OPENED -> compareBy { it.lastUsed() }
         SortField.SIZE -> compareBy { (it as? LibraryItem.DocumentEntry)?.fileSize ?: 0L }
         SortField.TYPE -> compareBy { it.typeRank() }
     }
     val directed = if (order.ascending) primary else primary.reversed()
     return sortedWith(compareBy<LibraryItem> { if (it is LibraryItem.FolderEntry) 0 else 1 }.then(directed).then(byName))
+}
+
+/** "Last opened" for sorting: notes and folders are "used" when edited; unopened documents sort last. */
+private fun LibraryItem.lastUsed(): Long = when (this) {
+    is LibraryItem.DocumentEntry -> lastOpenedAt ?: 0L
+    is LibraryItem.NoteEntry -> modifiedAt
+    is LibraryItem.FolderEntry -> modifiedAt
 }
 
 private fun LibraryItem.typeRank(): Int = when (this) {

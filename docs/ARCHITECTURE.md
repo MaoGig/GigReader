@@ -275,17 +275,16 @@ Viewport Compose (um único Canvas; scroll/zoom só invalidam o draw)
 ## 9. Navegação
 
 Navegação própria e mínima (pilha de destinos `@Immutable` salva no `SavedState`), sem dependência:
-com 6 destinos, uma pilha + `BackHandler` + `SaveableStateHolder` é mais simples e mais leve que
+com 7 destinos, uma pilha + `BackHandler` + `SaveableStateHolder` é mais simples e mais leve que
 uma biblioteca.
 
 ```text
-Library(folderId?) ──► Reader(documentId | uri externo)
-      │                    └── (fase 2+) painel: miniaturas, sumário, anotações, busca
-      ├──► Search
+Library(folderId?) ──► Reader(documentId)          (busca da biblioteca fica na própria Home)
+      │                    └── (fase 2+) painel: miniaturas, sumário, anotações, busca no documento
       ├──► NoteEditor(noteId)
       ├──► Trash
-      ├──► Settings
-      └──► Diagnostics (somente debug)
+      └──► Settings ──► Diagnostics (somente debug)
+ExternalReader(uri)      ← ACTION_VIEW ("Abrir com"), sem importar
 ```
 
 - **Intents**: `ACTION_VIEW` (application/pdf) → Reader externo; `ACTION_SEND`/`SEND_MULTIPLE` →

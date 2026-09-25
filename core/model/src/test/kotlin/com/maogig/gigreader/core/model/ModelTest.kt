@@ -63,6 +63,17 @@ class ModelTest {
         )
     }
 
+    @Test
+    fun recentlyEditedNotesDoNotSinkUnderLastOpenedSort() {
+        val note = LibraryItem.NoteEntry("n", "note", "", null, false, createdAt = 50, modifiedAt = 500)
+        val opened = doc("opened", size = 1, created = 1).copy(lastOpenedAt = 100)
+        val never = doc("never", size = 1, created = 1)
+        assertEquals(
+            listOf("note", "opened", "never"),
+            listOf(never, opened, note).sortedForDisplay(SortOrder(SortField.LAST_OPENED, ascending = false)).map { it.title },
+        )
+    }
+
     private fun doc(title: String, size: Long, created: Long) = LibraryItem.DocumentEntry(
         id = title, title = title, folderId = null, fileSize = size, pageCount = 10, lastPage = null,
         maxPageReached = null, favorite = false, annotationCount = 0, lastOpenedAt = null,

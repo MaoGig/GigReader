@@ -1,6 +1,11 @@
 package com.maogig.gigreader
 
+import android.graphics.Color as AndroidColor
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -14,6 +19,7 @@ import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.maogig.gigreader.core.model.AppSettings
 import com.maogig.gigreader.core.ui.theme.GigReaderTheme
+import com.maogig.gigreader.core.ui.theme.LocalUiPreferences
 import com.maogig.gigreader.di.AppContainer
 import com.maogig.gigreader.diagnostics.DiagnosticsRoute
 import com.maogig.gigreader.diagnostics.diagnosticsAvailable
@@ -39,6 +45,7 @@ fun GigReaderApp(
 ) {
     val settings by container.settingsRepository.settings.collectAsStateWithLifecycle(initialValue = AppSettings())
     GigReaderTheme(themeMode = settings.themeMode, animationsEnabled = settings.animationsEnabled) {
+        SystemBarsFollowTheme(LocalUiPreferences.current.isDark)
         val navigator = rememberNavigator()
         BackHandler(enabled = navigator.canGoBack) { navigator.pop() }
 
@@ -122,3 +129,22 @@ fun GigReaderApp(
         }
     }
 }
+
+/**
+ * Keeps status/navigation bar icons readable when the in-app theme differs from the system's
+ * night mode (e.g. Light theme on a dark system). Re-applied only when the theme changes.
+ */
+@Composable
+private fun SystemBarsFollowTheme(isDark: Boolean) {
+    val activity = LocalActivity.current as? ComponentActivity ?: return
+    LaunchedEffect(activity, isDark) {
+        activity.enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.auto(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT) { isDark },
+            navigationBarStyle = SystemBarStyle.auto(LightScrim, DarkScrim) { isDark },
+        )
+    }
+}
+
+// Same scrims enableEdgeToEdge uses by default for 3-button navigation.
+private val LightScrim = AndroidColor.argb(0xe6, 0xFF, 0xFF, 0xFF)
+private val DarkScrim = AndroidColor.argb(0x80, 0x1b, 0x1b, 0x1b)

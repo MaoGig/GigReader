@@ -4,6 +4,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.OutputStream
+import java.nio.channels.FileChannel
+import java.nio.file.StandardOpenOption
 
 /**
  * Owns the app-private directory holding imported documents (one canonical copy per document).
@@ -42,6 +44,7 @@ class DocumentFileStore(val rootDir: File) {
             // renameTo can fail across mount points; both live in rootDir, so this means a real error.
             throw IOException("could not move imported file into the library")
         }
+        syncDirectory(rootDir)
         return relative
     }
 
@@ -70,6 +73,16 @@ class DocumentFileStore(val rootDir: File) {
 
     fun totalSize(): Long = rootDir.listFiles()?.filter { it.isFile }?.sumOf { it.length() } ?: 0L
 
+    /** Makes the rename itself durable (the directory entry), so a power loss cannot undo it. */
+    private fun syncDirectory(dir: File) {
+        try {
+            FileChannel.open(dir.toPath(), StandardOpenOption.READ).use { it.force(true) }
+        } catch (_: IOException) {
+            // Best effort: some filesystems do not allow opening directories.
+        } catch (_: UnsupportedOperationException) {
+        }
+    }
+
     private fun ensureDir(dir: File) {
         if (!dir.isDirectory && !dir.mkdirs() && !dir.isDirectory) throw IOException("cannot create $dir")
     }
@@ -81,10 +94,14 @@ class DocumentFileStore(val rootDir: File) {
 
 /** Output stream that flushes and fsyncs the file descriptor on close, so a commit is durable. */
 class SyncingOutputStream(private val out: FileOutputStream) : OutputStream() {
+    private var closed = false
+
     override fun write(b: Int) = out.write(b)
     override fun write(b: ByteArray, off: Int, len: Int) = out.write(b, off, len)
     override fun flush() = out.flush()
     override fun close() {
+        if (closed) return
+        closed = true
         out.use {
             it.flush()
             it.fd.sync()

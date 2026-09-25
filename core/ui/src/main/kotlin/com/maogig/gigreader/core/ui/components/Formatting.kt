@@ -11,16 +11,19 @@ import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import java.util.Date
 import java.util.Locale
-import kotlin.math.ln
-import kotlin.math.pow
 
 /** Human-readable file size ("2.4 MB"). Units are international, so no translation is needed. */
 fun formatFileSize(bytes: Long): String {
     if (bytes < 1024) return "$bytes B"
     val units = arrayOf("KB", "MB", "GB", "TB")
-    val exp = (ln(bytes.toDouble()) / ln(1024.0)).toInt().coerceIn(1, units.size)
-    val value = bytes / 1024.0.pow(exp)
-    return String.format(Locale.getDefault(), if (value < 10) "%.1f %s" else "%.0f %s", value, units[exp - 1])
+    var value = bytes / 1024.0
+    var unit = 0
+    // Move up a unit before rounding would print "1024 KB" or "10.0 MB".
+    while (value >= 999.5 && unit < units.lastIndex) {
+        value /= 1024.0
+        unit++
+    }
+    return String.format(Locale.getDefault(), if (value < 9.95) "%.1f %s" else "%.0f %s", value, units[unit])
 }
 
 /** "72% read" style progress label; `null` when never opened. */

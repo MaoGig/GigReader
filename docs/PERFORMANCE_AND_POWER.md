@@ -140,6 +140,7 @@ Os PDFs de teste são gerados pelo próprio benchmark (`android.graphics.pdf.Pdf
 ## 10. Logs
 
 - `Log.d` e traços detalhados só em debug (`BuildConfig.DEBUG`); nunca em loops de render/scroll.
-- Seções de trace (`androidx.tracing`) são praticamente gratuitas quando o trace não está ativo e
-  permanecem no release para Macrobenchmark.
+- Seções de trace (`android.os.Trace` via `core:pdf` `PerfTrace`, assíncronas quando o trabalho
+  suspende) são praticamente gratuitas quando o trace não está ativo e permanecem no release para
+  Macrobenchmark.
 - Erros para o usuário nunca mostram stack trace (§50).

@@ -56,6 +56,11 @@ class WeightedLruCache<K : Any, V : Any>(
         synchronized(lock) {
             if (w > maxWeight) {
                 stored = false
+                // The key now means the rejected value; an older value for it would be stale.
+                map.remove(key)?.let { previous ->
+                    weight -= weigher(key, previous)
+                    evicted.add(key to previous)
+                }
             } else {
                 val previous = map.put(key, value)
                 weight += w
