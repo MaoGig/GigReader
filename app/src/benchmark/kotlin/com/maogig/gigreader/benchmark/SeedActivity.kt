@@ -24,6 +24,7 @@ import com.maogig.gigreader.MainActivity
 import com.maogig.gigreader.core.data.importer.ImportOutcome
 import com.maogig.gigreader.core.data.library.ItemKind
 import com.maogig.gigreader.core.data.library.ItemRef
+import com.maogig.gigreader.core.data.reader.SavedReadingPosition
 import com.maogig.gigreader.di.AppContainer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -109,7 +110,17 @@ private class DocumentSeeder(private val container: AppContainer, private val wo
         val ids = request.titles().map { title -> seedOne(title, request.pages) }
         if (request.open) {
             // Every benchmark iteration starts from the first page at "fit width".
-            container.readerRepository.savePosition(documentId = ids.first(), page = 0, pageOffset = 0f, zoom = 1f)
+            container.readerRepository.savePosition(
+                documentId = ids.first(),
+                position = SavedReadingPosition(
+                    page = 0,
+                    pageOffset = 0f,
+                    zoom = 1f,
+                    offsetXFraction = 0f,
+                    currentPage = 0,
+                    lastVisiblePage = 0,
+                ),
+            )
         }
         return ids
     }

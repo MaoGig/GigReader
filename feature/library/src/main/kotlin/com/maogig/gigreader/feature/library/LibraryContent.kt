@@ -14,7 +14,7 @@ import com.maogig.gigreader.core.model.sortedForDisplay
 /** "Recently opened" filter window. */
 internal const val RECENT_WINDOW_MILLIS: Long = 30L * 24 * 60 * 60 * 1000
 
-/** Library-wide rows shown only on the Home (root). */
+/** Library-wide shelves shown only on the Home (root) when no filter is active. */
 internal data class RootShelves(
     val continueReading: List<LibraryItem.DocumentEntry> = emptyList(),
     val favorites: List<LibraryItem.DocumentEntry> = emptyList(),
@@ -61,8 +61,9 @@ internal fun LibraryItem.matches(filter: LibraryFilter, nowMillis: Long): Boolea
  * `Dispatchers.Default` (via `flowOn`) so sorting/filtering never happens during composition.
  *
  * - Search active → results grouped as Folders / Documents / Notes (repository relevance order).
- * - Filter active → matching documents and notes (folders hidden). On the Home the pool also
- *   includes the library-wide shelves, so "Favorites" and "Recently opened" are useful at the root.
+ * - Filter active → matching documents and notes of [contents] (folders hidden). On the Home the
+ *   ViewModel passes the library-wide pool of that filter as [contents] (every note, every favorite,
+ *   everything opened in the last 30 days…); in a folder, the folder's own items.
  * - Otherwise → Home sections (root) or the folder's subfolders, documents and notes.
  */
 internal fun buildLibraryContent(
@@ -85,20 +86,10 @@ internal fun buildLibraryContent(
         }
         filter != LibraryFilter.ALL -> {
             builder.add(LibraryRow.ActiveFilter(filter))
-            val pool = LinkedHashMap<ItemRef, LibraryItem>()
-            contents.documents.forEach { pool.addIfAbsent(it.ref(), it) }
-            contents.notes.forEach { pool.addIfAbsent(it.ref(), it) }
-            if (isRoot) {
-                shelves.continueReading.forEach { pool.addIfAbsent(it.ref(), it) }
-                shelves.favorites.forEach { pool.addIfAbsent(it.ref(), it) }
-                shelves.recentNotes.forEach { pool.addIfAbsent(it.ref(), it) }
-            }
-            val matching = pool.values.filter { it.matches(filter, nowMillis) }.sortedForDisplay(sort)
-            builder.section(LibrarySection.DOCUMENTS, matching.filter { it is LibraryItem.DocumentEntry })
-            builder.section(
-                if (isRoot) LibrarySection.QUICK_NOTES else LibrarySection.NOTES,
-                matching.filter { it is LibraryItem.NoteEntry },
-            )
+            val documents = contents.documents.filter { it.matches(filter, nowMillis) }.sortedForDisplay(sort)
+            val notes = contents.notes.filter { it.matches(filter, nowMillis) }.sortedForDisplay(sort)
+            builder.section(LibrarySection.DOCUMENTS, documents)
+            builder.section(LibrarySection.NOTES, notes)
             if (!builder.hasCells) builder.empty(EmptyKind.FILTER)
         }
         else -> {
@@ -208,4 +199,12 @@ internal fun buildBreadcrumbs(tree: FolderTree, folderId: String?): List<Crumb> 
     crumbs.add(Crumb(null, null))
     path.forEach { crumbs.add(Crumb(it.id, it.name)) }
     return crumbs
+}
+
+/** Folder panel of expanded screens: every folder, depth-first, indented by [FolderPanelRow.depth]. */
+internal fun buildFolderPanelRows(tree: FolderTree): List<FolderPanelRow> {
+    val flat = tree.flatten()
+    val rows = ArrayList<FolderPanelRow>(flat.size)
+    for ((node, depth) in flat) rows.add(FolderPanelRow(node.id, node.name, depth))
+    return rows
 }

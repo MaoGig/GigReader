@@ -7,9 +7,10 @@ import androidx.room.Query
 import com.maogig.gigreader.core.database.entity.DocumentEntity
 import kotlinx.coroutines.flow.Flow
 
+/** lastPage is the page the reader's "X / N" indicator showed (current_page), not the top page. */
 private const val ROW_COLUMNS = """
     d.id, d.title, d.folder_id AS folderId, d.file_size AS fileSize, d.page_count AS pageCount,
-    rp.page AS lastPage, rp.max_page_reached AS maxPageReached, d.favorite,
+    rp.current_page AS lastPage, rp.max_page_reached AS maxPageReached, d.favorite,
     d.annotation_count AS annotationCount, d.last_opened_at AS lastOpenedAt,
     d.created_at AS createdAt, d.modified_at AS modifiedAt
 """
@@ -34,9 +35,23 @@ interface DocumentDao {
     @Query("SELECT $ROW_COLUMNS $FROM_LIVE AND d.archived = 1 ORDER BY d.title COLLATE NOCASE")
     fun observeArchived(): Flow<List<DocumentRow>>
 
+    /** Every live, non-archived document in any folder (library-wide filters). The UI sorts. */
+    @Query("SELECT $ROW_COLUMNS $FROM_LIVE AND d.archived = 0")
+    fun observeAll(): Flow<List<DocumentRow>>
+
+    /** Live, non-archived documents opened at or after [since], most recent first (last_opened_at index). */
     @Query(
         """
-        SELECT $ROW_COLUMNS $FROM_LIVE AND d.title LIKE '%' || :query || '%' ESCAPE '\'
+        SELECT $ROW_COLUMNS $FROM_LIVE AND d.last_opened_at >= :since AND d.archived = 0
+        ORDER BY d.last_opened_at DESC
+        """,
+    )
+    fun observeOpenedSince(since: Long): Flow<List<DocumentRow>>
+
+    /** [query] is a normalized, LIKE-escaped pattern (SearchKeys.likeQuery). */
+    @Query(
+        """
+        SELECT $ROW_COLUMNS $FROM_LIVE AND d.search_title LIKE '%' || :query || '%' ESCAPE '\'
         ORDER BY d.last_opened_at IS NULL, d.last_opened_at DESC, d.title COLLATE NOCASE LIMIT :limit
         """,
     )
@@ -64,8 +79,14 @@ interface DocumentDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(document: DocumentEntity)
 
-    @Query("UPDATE documents SET title = :title, modified_at = :now, version = version + 1 WHERE id = :id")
-    suspend fun rename(id: String, title: String, now: Long)
+    /** [searchTitle] is SearchKeys.of([title]). */
+    @Query(
+        """
+        UPDATE documents SET title = :title, search_title = :searchTitle, modified_at = :now, version = version + 1
+        WHERE id = :id
+        """,
+    )
+    suspend fun rename(id: String, title: String, searchTitle: String, now: Long)
 
     @Query("UPDATE documents SET folder_id = :folderId, modified_at = :now, version = version + 1 WHERE id IN (:ids)")
     suspend fun move(ids: List<String>, folderId: String?, now: Long)
@@ -86,7 +107,13 @@ interface DocumentDao {
     @Query("UPDATE documents SET page_count = :pageCount WHERE id = :id AND page_count != :pageCount")
     suspend fun setPageCount(id: String, pageCount: Int)
 
-    @Query("UPDATE documents SET annotation_count = annotation_count + :delta, modified_at = :now WHERE id = :id")
+    /** A metadata change like any other: version moves together with modified_at (sync). */
+    @Query(
+        """
+        UPDATE documents SET annotation_count = annotation_count + :delta, modified_at = :now, version = version + 1
+        WHERE id = :id
+        """,
+    )
     suspend fun addAnnotationCount(id: String, delta: Int, now: Long)
 
     @Query("SELECT id FROM documents WHERE folder_id IN (:folderIds) AND trashed_at IS NULL AND deleted_at IS NULL")
@@ -134,7 +161,7 @@ interface DocumentDao {
     /** Purges content and keeps a tombstone row for sync. The file itself is deleted by the caller. */
     @Query(
         """
-        UPDATE documents SET deleted_at = :now, title = '', file_name = '', source_path = '', favorite = 0,
+        UPDATE documents SET deleted_at = :now, title = '', search_title = '', file_name = '', source_path = '', favorite = 0,
           annotation_count = 0, trashed_at = NULL, trash_root_id = NULL, modified_at = :now, version = version + 1
         WHERE id IN (:ids)
         """,
@@ -146,4 +173,8 @@ interface DocumentDao {
 
     @Query("SELECT COUNT(*) FROM documents WHERE deleted_at IS NULL")
     suspend fun count(): Int
+
+    /** Ids of documents that are live or in the trash (everything that may still show a cover). */
+    @Query("SELECT id FROM documents WHERE deleted_at IS NULL")
+    suspend fun existingIds(): List<String>
 }

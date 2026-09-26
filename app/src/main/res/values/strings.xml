@@ -3,4 +3,32 @@
     <string name="app_name" translatable="false">GigReader</string>
     <string name="app_shortcut_new_note">New note</string>
     <string name="app_shortcut_new_note_long">New quick note</string>
+
+    <!-- Library title of an imported file whose name yields none. -->
+    <string name="app_untitled_document">Untitled document</string>
+    <string name="app_note_create_failed">Couldn\'t create the note</string>
+
+    <!-- Import results shown outside the library screen (files shared from other apps, the
+         external reader's "Add to library"). %1$s is the document title or file name. -->
+    <string name="app_action_open">Open</string>
+    <string name="app_import_imported">Imported %1$s</string>
+    <plurals name="app_import_imported_many">
+        <item quantity="one">Imported %d document</item>
+        <item quantity="other">Imported %d documents</item>
+    </plurals>
+    <string name="app_import_duplicate">%1$s is already in your library</string>
+    <string name="app_import_duplicate_in_trash">%1$s is already in your library (it is in the trash)</string>
+    <plurals name="app_import_duplicate_many">
+        <item quantity="one">%d file was already in your library</item>
+        <item quantity="other">%d files were already in your library</item>
+    </plurals>
+    <string name="app_import_failed_not_pdf">%1$s is not a PDF</string>
+    <string name="app_import_failed_password">%1$s: password-protected PDFs are not supported yet</string>
+    <string name="app_import_failed_corrupted">%1$s seems corrupted or uses an unsupported PDF feature</string>
+    <string name="app_import_failed_no_space">Not enough storage to import %1$s</string>
+    <string name="app_import_failed_unreadable">Could not read %1$s</string>
+    <plurals name="app_import_failed_many">
+        <item quantity="one">%d file could not be imported</item>
+        <item quantity="other">%d files could not be imported</item>
+    </plurals>
 </resources>

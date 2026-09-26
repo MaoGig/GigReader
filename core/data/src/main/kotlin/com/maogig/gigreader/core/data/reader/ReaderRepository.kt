@@ -9,6 +9,25 @@ import com.maogig.gigreader.core.database.entity.ReadingPositionEntity
 import com.maogig.gigreader.core.database.toModel
 import com.maogig.gigreader.core.model.ReadingPosition
 
+/**
+ * What the reader saves when the view settles. The first four fields restore the viewport; the last
+ * two feed the library ("Continue reading" and "% read").
+ */
+data class SavedReadingPosition(
+    /** Zero-based page at the top edge of the viewport. */
+    val page: Int,
+    /** Fraction (0..1) of [page] scrolled past the top edge. */
+    val pageOffset: Float,
+    /** Zoom relative to "fit width". */
+    val zoom: Float,
+    /** Horizontal offset divided by the document width (0 unless zoomed in). */
+    val offsetXFraction: Float,
+    /** Page shown by the "X / N" indicator (the page at the viewport's vertical center). */
+    val currentPage: Int,
+    /** Last page visible at the bottom edge; at the end of the document this is the last page. */
+    val lastVisiblePage: Int,
+)
+
 /** Cached page geometry: the first [measuredCount] pages are exact, the rest are estimates. */
 data class PageMetrics(val sizes: PageSizes, val measuredCount: Int) {
     val isComplete: Boolean get() = measuredCount >= sizes.count
@@ -21,7 +40,11 @@ data class PageMetrics(val sizes: PageSizes, val measuredCount: Int) {
 interface ReaderRepository {
     suspend fun position(documentId: String): ReadingPosition?
 
-    suspend fun savePosition(documentId: String, page: Int, pageOffset: Float, zoom: Float)
+    /**
+     * Saves where the user is. max_page_reached only grows: it becomes the highest
+     * [SavedReadingPosition.lastVisiblePage] ever saved, so reading to the end reaches 100 %.
+     */
+    suspend fun savePosition(documentId: String, position: SavedReadingPosition)
 
     suspend fun markOpened(documentId: String)
 
@@ -42,15 +65,17 @@ class LocalReaderRepository(
 
     override suspend fun position(documentId: String): ReadingPosition? = positions.get(documentId)?.toModel()
 
-    override suspend fun savePosition(documentId: String, page: Int, pageOffset: Float, zoom: Float) {
+    override suspend fun savePosition(documentId: String, position: SavedReadingPosition) {
         val previous = positions.get(documentId)
         positions.upsert(
             ReadingPositionEntity(
                 documentId = documentId,
-                page = page,
-                pageOffset = pageOffset,
-                zoom = zoom,
-                maxPageReached = maxOf(page, previous?.maxPageReached ?: 0),
+                page = position.page,
+                pageOffset = position.pageOffset,
+                zoom = position.zoom,
+                offsetXFraction = position.offsetXFraction,
+                currentPage = position.currentPage,
+                maxPageReached = maxOf(position.lastVisiblePage, position.currentPage, previous?.maxPageReached ?: 0),
                 updatedAt = clock.now(),
                 version = (previous?.version ?: 0) + 1,
             ),

@@ -20,10 +20,16 @@ interface TagDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(tag: TagEntity)
 
+    /** Replaces the whole row: when reviving an unlinked pair, pass the previous version + 1. */
     @Upsert
     suspend fun link(link: DocumentTagEntity)
 
-    @Query("UPDATE document_tags SET deleted_at = :now WHERE document_id = :documentId AND tag_id = :tagId")
+    @Query(
+        """
+        UPDATE document_tags SET deleted_at = :now, modified_at = :now, version = version + 1
+        WHERE document_id = :documentId AND tag_id = :tagId AND deleted_at IS NULL
+        """,
+    )
     suspend fun unlink(documentId: String, tagId: String, now: Long)
 
     @Query(

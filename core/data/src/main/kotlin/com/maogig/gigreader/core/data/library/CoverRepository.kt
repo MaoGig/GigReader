@@ -20,13 +20,17 @@ import kotlinx.coroutines.withContext
  * Regeneration only happens when the cover file is missing (the system may clear the cache dir) and
  * is limited to one PDF at a time, so scrolling a large library can never fan out into many engine
  * sessions. Scrolling itself only touches the memory cache or decodes ~20 KB files.
+ *
+ * Covers are opaque page renders, so they are decoded as RGB_565 (half the memory of ARGB_8888): a
+ * 360×480 cover takes ~340 KB, and the default 24 MB cache holds ~70 of them, more than a grid and
+ * two shelves show at once, so scrolling back and forth does not re-decode.
  */
 class CoverRepository(
     private val db: GigReaderDatabase,
     private val files: DocumentFileStore,
     private val store: CoverStore,
     private val engine: PdfEngine,
-    maxMemoryBytes: Long = 12L * 1024 * 1024,
+    maxMemoryBytes: Long = DEFAULT_MEMORY_BYTES,
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val memory = WeightedLruCache<String, Bitmap>(
@@ -57,7 +61,7 @@ class CoverRepository(
     private fun decode(documentId: String): Bitmap? {
         val file = store.fileFor(documentId)
         if (!file.isFile) return null
-        val options = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
+        val options = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.RGB_565 }
         return BitmapFactory.decodeFile(file.path, options)
     }
 
@@ -72,7 +76,8 @@ class CoverRepository(
                 return@withPermit null
             }
             try {
-                val document = engine.open(files.fileFor(entity.sourcePath))
+                // fileFor canonicalizes the path (file system access); load() may run on the main thread.
+                val document = engine.open(withContext(io) { files.fileFor(entity.sourcePath) })
                 try {
                     CoverRenderer.renderTo(document, store.fileFor(documentId), CoverStore.WIDTH_PX)
                 } finally {
@@ -85,5 +90,9 @@ class CoverRepository(
                 null
             }
         }
+    }
+
+    companion object {
+        const val DEFAULT_MEMORY_BYTES: Long = 24L * 1024 * 1024
     }
 }

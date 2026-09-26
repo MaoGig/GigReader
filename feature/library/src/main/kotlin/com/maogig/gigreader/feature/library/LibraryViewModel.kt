@@ -37,7 +37,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
@@ -48,8 +49,18 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 internal const val SEARCH_DEBOUNCE_MILLIS = 250L
+
+/**
+ * Set once this process started purging expired trash. The Home triggers the purge once per process
+ * (the Trash screen purges again whenever it opens); there is no periodic job.
+ */
+internal val processTrashPurgeStarted = AtomicBoolean(false)
+
+/** "No limit" for the library-wide Favorites view (the Home shelf uses the repository default). */
+private const val UNLIMITED = Int.MAX_VALUE
 
 /**
  * State holder of one library screen (the Home when [folderId] is `null`, otherwise a folder).
@@ -58,6 +69,10 @@ internal const val SEARCH_DEBOUNCE_MILLIS = 250L
  * shelves (Room flows, invalidation driven), settings (layout/sort), filter, debounced search,
  * selection and the open dialog. Sorting and filtering run on [computeDispatcher], never during
  * composition. Nothing here polls: when the user does nothing, every flow is suspended.
+ *
+ * On the Home, filters and rail views are library-wide (every note, every favorite, everything opened
+ * in the last 30 days…) and only the queries of the active view are observed. In a folder, filters
+ * apply to the folder's own items.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 internal class LibraryViewModel(
@@ -71,6 +86,7 @@ internal class LibraryViewModel(
     computeDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val searchDebounceMillis: Long = SEARCH_DEBOUNCE_MILLIS,
+    private val trashPurgeStarted: AtomicBoolean = processTrashPurgeStarted,
 ) : ViewModel() {
 
     /** One history per screen; every undoable edit made here is recorded (plan §11). */
@@ -94,14 +110,21 @@ internal class LibraryViewModel(
     private val tree: StateFlow<FolderTree?> = library.observeFolderTree()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), null)
 
-    private val shelves: Flow<RootShelves> = if (folderId == null) {
-        combine(
-            library.observeContinueReading(),
-            library.observeFavorites(),
-            library.observeRecentNotes(),
-        ) { continueReading, favorites, recentNotes -> RootShelves(continueReading, favorites, recentNotes) }
+    /** Folders of the side panel (expanded screens): collected only while the panel is shown. */
+    val folderPanel: StateFlow<List<FolderPanelRow>> = tree.filterNotNull()
+        .map(::buildFolderPanelRows)
+        .flowOn(computeDispatcher)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), emptyList())
+
+    /**
+     * What the listing is built from, tagged with the filter it was loaded for, so a frame never
+     * mixes a new filter with the previous view's items. On the Home, flatMapLatest drops the
+     * previous view's queries: only what the active view shows is observed.
+     */
+    private val pool: Flow<Pool> = if (folderId == null) {
+        filter.flatMapLatest(::rootPool)
     } else {
-        flowOf(RootShelves.Empty)
+        combine(library.observeFolder(folderId), filter) { contents, active -> Pool(active, contents) }
     }
 
     private val search: Flow<SearchSnapshot> =
@@ -117,30 +140,29 @@ internal class LibraryViewModel(
                 }
             }
 
-    private val source: Flow<SourceData> = combine(
-        library.observeFolder(folderId),
-        shelves,
-        tree.filterNotNull(),
-    ) { contents, rootShelves, folderTree -> SourceData(contents, rootShelves, folderTree) }
+    private val source: Flow<SourceData> = combine(pool, tree.filterNotNull()) { data, folderTree ->
+        SourceData(data, folderTree)
+    }
 
-    private val viewPrefs: Flow<ViewPrefs> = combine(settings.settings, filter) { appSettings, activeFilter ->
-        ViewPrefs(appSettings.libraryLayout, appSettings.librarySort, activeFilter)
-    }.distinctUntilChanged()
+    private val viewPrefs: Flow<ViewPrefs> = settings.settings
+        .map { appSettings -> ViewPrefs(appSettings.libraryLayout, appSettings.librarySort) }
+        .distinctUntilChanged()
 
     private val content: Flow<ContentSnapshot> = combine(source, viewPrefs, search) { data, prefs, searchState ->
         val now = clock.now()
         val built = buildLibraryContent(
             isRoot = folderId == null,
-            contents = data.contents,
-            shelves = data.shelves,
+            contents = data.pool.contents,
+            shelves = data.pool.shelves,
             search = searchState,
-            filter = prefs.filter,
+            filter = data.pool.filter,
             sort = prefs.sort,
             nowMillis = now,
         )
         ContentSnapshot(
             content = built,
             prefs = prefs,
+            filter = data.pool.filter,
             searchActive = searchState.results != null,
             folderName = folderId?.let { data.tree[it]?.name },
             breadcrumbs = buildBreadcrumbs(data.tree, folderId),
@@ -159,6 +181,55 @@ internal class LibraryViewModel(
 
     /** Selection read synchronously (the UI state may lag one dispatch behind a long press). */
     val inSelectionMode: Boolean get() = selection.value.isNotEmpty()
+
+    init {
+        if (folderId == null) purgeExpiredTrashOnce()
+    }
+
+    /**
+     * Items expire from the trash after 30 days. Besides the Trash screen, the Home purges once per
+     * process, after its first content is shown so it never competes with the startup queries.
+     * Failures are silent (the next Home or the Trash screen tries again).
+     */
+    private fun purgeExpiredTrashOnce() {
+        if (!trashPurgeStarted.compareAndSet(false, true)) return
+        viewModelScope.launch {
+            var purged = false
+            try {
+                uiState.first { !it.loading }
+                library.purgeExpiredTrash()
+                purged = true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Nothing to tell the user: expired items simply stay in the trash a little longer.
+            } finally {
+                if (!purged) trashPurgeStarted.set(false)
+            }
+        }
+    }
+
+    /** Library-wide pool of one Home view: only the queries that view needs. */
+    private fun rootPool(active: LibraryFilter): Flow<Pool> = when (active) {
+        LibraryFilter.ALL -> combine(
+            library.observeFolder(null),
+            library.observeContinueReading(),
+            library.observeFavorites(),
+            library.observeRecentNotes(),
+        ) { contents, continueReading, favorites, recentNotes ->
+            Pool(active, contents, RootShelves(continueReading, favorites, recentNotes))
+        }
+        // "Annotated" is every document filtered by its denormalized annotation count.
+        LibraryFilter.PDFS, LibraryFilter.ANNOTATED ->
+            library.observeAllDocuments().map { documents -> Pool.of(active, documents = documents) }
+        LibraryFilter.NOTES -> library.observeAllNotes().map { notes -> Pool.of(active, notes = notes) }
+        LibraryFilter.FAVORITES -> combine(
+            library.observeFavorites(limit = UNLIMITED),
+            library.observeFavoriteNotes(),
+        ) { documents, notes -> Pool.of(active, documents, notes) }
+        LibraryFilter.RECENT -> library.observeOpenedSince(clock.now() - RECENT_WINDOW_MILLIS)
+            .map { documents -> Pool.of(active, documents = documents) }
+    }
 
     // region Search, filter, sort, layout
 
@@ -355,8 +426,9 @@ internal class LibraryViewModel(
 
     fun shareSelection() = share(selection.value.toList())
 
-    fun duplicate(documentId: String) = launchSafely {
-        val copyId = library.duplicateDocument(documentId)
+    /** [copyTitle] is localized by the UI, e.g. "Paper (cópia)". */
+    fun duplicate(documentId: String, copyTitle: String) = launchSafely {
+        val copyId = library.duplicateDocument(documentId, copyTitle)
         val copy = listOf(ItemRef(copyId, ItemKind.DOCUMENT))
         record(
             object : UndoableAction {
@@ -377,6 +449,29 @@ internal class LibraryViewModel(
     fun undo() = launchSafely {
         undoManager.undo()
         refreshSearch()
+    }
+
+    /**
+     * "Already in your library (in the trash) · Restore" after an import. A document trashed together
+     * with its folder cannot come back alone (it would stay inside a trashed folder): the user is
+     * told to restore the folder from the trash instead.
+     */
+    fun restoreDocumentFromTrash(documentId: String) = launchSafely {
+        val document = library.document(documentId)
+        if (document == null) {
+            _events.send(LibraryEvent.Message(LibraryMessage.Failed))
+            return@launchSafely
+        }
+        if (document.trashedAt != null) {
+            val ref = ItemRef(documentId, ItemKind.DOCUMENT)
+            if (library.observeTrash().first().none { it.ref == ref }) {
+                _events.send(LibraryEvent.Message(LibraryMessage.RestoreWithFolder))
+                return@launchSafely
+            }
+            library.restoreFromTrash(listOf(ref))
+            refreshSearch()
+        }
+        _events.send(LibraryEvent.Message(LibraryMessage.Restored(document.title)))
     }
 
     fun importDocuments(uris: List<Uri>) {
@@ -428,13 +523,28 @@ internal class LibraryViewModel(
         }
     }
 
-    private class SourceData(val contents: FolderContents, val shelves: RootShelves, val tree: FolderTree)
+    private class Pool(
+        val filter: LibraryFilter,
+        val contents: FolderContents,
+        val shelves: RootShelves = RootShelves.Empty,
+    ) {
+        companion object {
+            fun of(
+                filter: LibraryFilter,
+                documents: List<LibraryItem.DocumentEntry> = emptyList(),
+                notes: List<LibraryItem.NoteEntry> = emptyList(),
+            ) = Pool(filter, FolderContents(emptyList(), documents, notes))
+        }
+    }
 
-    private data class ViewPrefs(val layout: LibraryLayout, val sort: SortOrder, val filter: LibraryFilter)
+    private class SourceData(val pool: Pool, val tree: FolderTree)
+
+    private data class ViewPrefs(val layout: LibraryLayout, val sort: SortOrder)
 
     private inner class ContentSnapshot(
         val content: LibraryContent,
         val prefs: ViewPrefs,
+        val filter: LibraryFilter,
         val searchActive: Boolean,
         val folderName: String?,
         val breadcrumbs: List<Crumb>,
@@ -465,7 +575,7 @@ internal class LibraryViewModel(
                 breadcrumbs = breadcrumbs,
                 layout = prefs.layout,
                 sort = prefs.sort,
-                filter = prefs.filter,
+                filter = filter,
                 searchActive = searchActive,
                 rows = content.rows,
                 selection = visibleSelection,

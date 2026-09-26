@@ -74,6 +74,28 @@ class ModelTest {
         )
     }
 
+    @Test
+    fun neverOpenedDocumentsSortByWhenTheyWereAdded() {
+        val oldOpened = doc("old", size = 1, created = 1).copy(lastOpenedAt = 100)
+        val freshImport = doc("fresh", size = 1, created = 1_000)
+        val olderImport = doc("older", size = 1, created = 50)
+        assertEquals(
+            listOf("fresh", "old", "older"),
+            listOf(oldOpened, olderImport, freshImport)
+                .sortedForDisplay(SortOrder(SortField.LAST_OPENED, ascending = false)).map { it.title },
+        )
+    }
+
+    @Test
+    fun readingPositionDefaultsFollowTheTopPage() {
+        val pos = ReadingPosition("d", page = 3, updatedAt = 0)
+        assertEquals(3, pos.currentPage)
+        assertEquals(3, pos.maxPageReached)
+        assertEquals(0f, pos.offsetXFraction)
+        // Reading to the end of a 10-page document reaches 100 %.
+        assertEquals(1f, ReadingPosition("d", page = 7, currentPage = 8, maxPageReached = 9, updatedAt = 0).progress(10))
+    }
+
     private fun doc(title: String, size: Long, created: Long) = LibraryItem.DocumentEntry(
         id = title, title = title, folderId = null, fileSize = size, pageCount = 10, lastPage = null,
         maxPageReached = null, favorite = false, annotationCount = 0, lastOpenedAt = null,

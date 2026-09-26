@@ -55,6 +55,7 @@ fun Document.toEntity(trashRootId: String? = null) = DocumentEntity(
     id = id,
     folderId = folderId,
     title = title,
+    searchTitle = SearchKeys.of(title),
     fileName = fileName,
     type = type.name,
     sourceKind = when (source) {
@@ -82,7 +83,8 @@ fun Document.toEntity(trashRootId: String? = null) = DocumentEntity(
 
 fun ReadingPositionEntity.toModel() = ReadingPosition(
     documentId = documentId, page = page, pageOffset = pageOffset, zoom = zoom,
-    maxPageReached = maxPageReached, updatedAt = updatedAt, version = version,
+    offsetXFraction = offsetXFraction, currentPage = currentPage, maxPageReached = maxPageReached,
+    updatedAt = updatedAt, version = version,
 )
 
 fun NoteEntity.toModel() = Note(

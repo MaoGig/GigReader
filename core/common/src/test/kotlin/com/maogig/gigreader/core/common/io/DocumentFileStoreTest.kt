@@ -47,7 +47,21 @@ class DocumentFileStoreTest {
     }
 
     @Test
+    fun commitToRestoresAFileAtAnExistingPath() {
+        val first = store.newIncomingFile().also { store.openForWrite(it).use { o -> o.write("old".toByteArray()) } }
+        val path = store.commit(first, "doc-2")
+        store.fileFor(path).delete()
+
+        val again = store.newIncomingFile().also { store.openForWrite(it).use { o -> o.write("new".toByteArray()) } }
+        assertEquals(path, store.commitTo(again, path))
+        assertEquals("new", store.fileFor(path).readText())
+        assertFalse(again.exists())
+    }
+
+    @Test
     fun pathsCannotEscapeTheRoot() {
         assertFailsWith<IllegalArgumentException> { store.fileFor("../secret") }
+        val incoming = store.newIncomingFile()
+        assertFailsWith<IllegalArgumentException> { store.commitTo(incoming, "../secret.pdf") }
     }
 }

@@ -16,8 +16,16 @@
     <string name="reader_error_not_found_title">Documento não encontrado</string>
     <string name="reader_error_not_found">Este documento não está mais na sua biblioteca.</string>
     <string name="reader_error_file_missing">O arquivo deste documento não está mais no aparelho.</string>
-    <string name="reader_error_password">PDFs protegidos por senha ainda não são suportados.</string>
+    <string name="reader_error_password">Por enquanto, abrir PDFs protegidos por senha requer Android 15 ou posterior.</string>
     <string name="reader_error_corrupted">O documento pode estar corrompido ou usar um recurso de PDF não suportado.</string>
     <string name="reader_error_unreadable">Não foi possível ler o arquivo. Ele pode ter sido movido, ou o app que o compartilhou não permite mais o acesso.</string>
     <string name="reader_error_memory">Não há memória suficiente para abrir este documento agora. Feche outros apps e tente novamente.</string>
+    <string name="reader_error_storage">Não foi possível acessar o armazenamento do app. Libere espaço no aparelho e tente novamente.</string>
+    <string name="reader_loading">Carregando documento</string>
+    <string name="reader_toggle_controls">Mostrar ou ocultar controles</string>
+    <string name="reader_password_title">Senha necessária</string>
+    <string name="reader_password_message">Este PDF é protegido. Digite a senha para abri-lo.</string>
+    <string name="reader_password_label">Senha</string>
+    <string name="reader_password_wrong">Senha incorreta. Tente novamente.</string>
+    <string name="reader_password_open">Abrir</string>
 </resources>

@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.ComponentCallbacks2
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.preferencesDataStoreFile
+import com.maogig.gigreader.R
 import com.maogig.gigreader.core.common.io.DocumentFileStore
 import com.maogig.gigreader.core.data.importer.ImportManager
 import com.maogig.gigreader.core.data.library.CoverRepository
@@ -17,12 +18,16 @@ import com.maogig.gigreader.core.data.reader.ReaderRepository
 import com.maogig.gigreader.core.data.settings.DataStoreSettingsRepository
 import com.maogig.gigreader.core.data.settings.SettingsRepository
 import com.maogig.gigreader.core.database.GigReaderDatabase
+import com.maogig.gigreader.core.model.AppSettings
 import com.maogig.gigreader.core.pdf.engine.PdfEngine
 import com.maogig.gigreader.core.pdf.framework.FrameworkPdfEngine
 import com.maogig.gigreader.core.pdf.render.RenderDiagnostics
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import java.io.File
 
 /**
@@ -59,8 +64,21 @@ class AppContainer(private val app: Application) {
         )
     }
 
+    /**
+     * The stored settings, `null` until DataStore's first read. Collected only while the UI is
+     * started; the last value is kept for the process, so a recreated activity (theme, locale or
+     * font-scale change) renders its first frame with the user's theme instead of waiting again.
+     */
+    val settings: StateFlow<AppSettings?> by lazy {
+        settingsRepository.settings.stateIn(applicationScope, SharingStarted.WhileSubscribed(), initialValue = null)
+    }
+
     val importManager: ImportManager by lazy {
-        ImportManager(app.contentResolver, database, fileStore, coverStore, pdfEngine, applicationScope)
+        ImportManager(
+            app.contentResolver, database, fileStore, coverStore, pdfEngine, applicationScope,
+            // Title of a shared file whose name yields none; read when needed (follows the locale).
+            untitledTitle = { app.getString(R.string.app_untitled_document) },
+        )
     }
 
     private val coverDelegate = lazy { CoverRepository(database, fileStore, coverStore, pdfEngine) }

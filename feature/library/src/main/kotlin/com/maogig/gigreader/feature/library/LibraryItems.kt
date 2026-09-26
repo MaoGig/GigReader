@@ -115,7 +115,7 @@ internal fun LibraryItemView(
     }
     if (folderTarget != null) {
         DisposableEffect(folderTarget, dragDrop) {
-            onDispose { dragDrop.unregister(folderTarget) }
+            onDispose { dragDrop.unregister(holder) }
         }
     }
 
@@ -128,7 +128,7 @@ internal fun LibraryItemView(
         ItemKind.NOTE -> TEST_TAG_NOTE
     }
     val interaction = Modifier
-        .then(if (folderTarget != null) Modifier.dropTarget(folderTarget, dragDrop) else Modifier)
+        .then(if (folderTarget != null) Modifier.dropTarget(holder, folderTarget, dragDrop) else Modifier)
         .libraryItemInteraction(
             item = item,
             ref = ref,

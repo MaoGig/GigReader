@@ -2,4 +2,35 @@
 <resources>
     <string name="app_shortcut_new_note">Nova nota</string>
     <string name="app_shortcut_new_note_long">Nova nota rápida</string>
+
+    <!-- Título na biblioteca de um arquivo importado cujo nome não fornece nenhum. -->
+    <string name="app_untitled_document">Documento sem título</string>
+    <string name="app_note_create_failed">Não foi possível criar a nota</string>
+
+    <!-- Resultados de importação mostrados fora da biblioteca (arquivos compartilhados por outros
+         apps, "Adicionar à biblioteca" do leitor externo). %1$s é o título ou o nome do arquivo. -->
+    <string name="app_action_open">Abrir</string>
+    <string name="app_import_imported">%1$s importado</string>
+    <plurals name="app_import_imported_many">
+        <item quantity="one">%d documento importado</item>
+        <item quantity="many">%d documentos importados</item>
+        <item quantity="other">%d documentos importados</item>
+    </plurals>
+    <string name="app_import_duplicate">%1$s já está na sua biblioteca</string>
+    <string name="app_import_duplicate_in_trash">%1$s já está na sua biblioteca (na lixeira)</string>
+    <plurals name="app_import_duplicate_many">
+        <item quantity="one">%d arquivo já estava na sua biblioteca</item>
+        <item quantity="many">%d arquivos já estavam na sua biblioteca</item>
+        <item quantity="other">%d arquivos já estavam na sua biblioteca</item>
+    </plurals>
+    <string name="app_import_failed_not_pdf">%1$s não é um PDF</string>
+    <string name="app_import_failed_password">%1$s: PDFs protegidos por senha ainda não são suportados</string>
+    <string name="app_import_failed_corrupted">%1$s parece estar corrompido ou usa um recurso de PDF não suportado</string>
+    <string name="app_import_failed_no_space">Não há espaço suficiente para importar %1$s</string>
+    <string name="app_import_failed_unreadable">Não foi possível ler %1$s</string>
+    <plurals name="app_import_failed_many">
+        <item quantity="one">%d arquivo não pôde ser importado</item>
+        <item quantity="many">%d arquivos não puderam ser importados</item>
+        <item quantity="other">%d arquivos não puderam ser importados</item>
+    </plurals>
 </resources>

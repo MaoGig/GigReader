@@ -66,14 +66,21 @@ data class Document(
  */
 data class ReadingPosition(
     val documentId: String,
-    /** Zero-based index of the page at the top of the viewport. */
+    /** Zero-based index of the page at the top of the viewport (restores the viewport). */
     val page: Int,
     /** Fraction (0..1) of [page] scrolled past the top of the viewport. */
     val pageOffset: Float = 0f,
     /** Zoom relative to "fit width" (1.0 = fit width). */
     val zoom: Float = 1f,
-    /** Highest page ever reached, used for the "% read" indicator. */
-    val maxPageReached: Int = page,
+    /** Horizontal offset divided by the document width (only non-zero when zoomed in). */
+    val offsetXFraction: Float = 0f,
+    /**
+     * Zero-based page shown by the reader's "X / N" indicator (the page at the viewport's vertical
+     * center). "Continue reading" shows this page, so both agree.
+     */
+    val currentPage: Int = page,
+    /** Highest page ever visible (bottom edge of the viewport), used for the "% read" indicator. */
+    val maxPageReached: Int = currentPage,
     val updatedAt: Long,
     val version: Long = 1,
 ) {

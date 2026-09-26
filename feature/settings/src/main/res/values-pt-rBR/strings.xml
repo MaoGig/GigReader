@@ -24,7 +24,6 @@
     <string name="settings_scroll_mode">Modo de rolagem</string>
     <string name="settings_scroll_continuous">Contínua</string>
     <string name="settings_scroll_paged">Página por página</string>
-    <string name="settings_coming_soon">Em breve</string>
     <string name="settings_keep_screen_on">Manter tela ligada</string>
     <string name="settings_keep_screen_on_summary">Somente com um documento aberto. Gasta mais bateria.</string>
 

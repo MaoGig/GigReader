@@ -20,11 +20,11 @@ evento ──► processa ──► ocioso (coroutine suspensa, 0 % CPU, 0 frame
 | Componente | Gatilho | Onde roda | Quando termina |
 |---|---|---|---|
 | Consultas da biblioteca | abrir/alterar pasta; invalidação do Room | executor do Room | a cada emissão; `Flow` coletado com `collectAsStateWithLifecycle` (para no `onStop`) |
-| Worker de render | novo `RenderPlan` (viewport mudou) | `Dispatchers.Default` + fila serial da engine | suspende em `Channel.CONFLATED` quando o plano está completo |
-| Medição de tamanhos de página | documento aberto sem `page_metrics` completo | fila serial da engine, blocos de 16 páginas | ao terminar o documento ou ao fechar o leitor |
+| Worker de render | novo `RenderPlan` (viewport mudou) | `Dispatchers.Default` + fila serial da engine | suspende em `Channel.CONFLATED` quando o plano está completo; pausado (sem bitmaps) enquanto o leitor não está visível |
+| Medição de tamanhos de página | documento aberto sem `page_metrics` completo | fila serial da engine, blocos de 16 páginas | ao terminar o documento, ao fechar o leitor ou quando ele deixa de estar visível (retoma no `onStart`) |
 | Autosave (posição de leitura, notas) | mudança de página/zoom, digitação | `CoalescingSaver` (1 gravação por janela) | não existe timer quando não há valor pendente; `flush()` no `onStop` |
 | Importação | usuário escolhe arquivos / compartilhamento | `Dispatchers.IO`, 1 arquivo por vez | fila vazia → worker suspenso |
-| Purga da lixeira | abrir a tela da lixeira | IO | imediato |
+| Purga da lixeira | abrir a tela da lixeira; 1× por processo na Home, após o primeiro conteúdo | IO | imediato |
 | Indexação FTS (fase 4) | biblioteca ociosa **e** carregando | `WorkManager` com restrições | por lote, cancelável |
 
 Nada disso roda no `Application.onCreate`.
@@ -57,10 +57,13 @@ Nada disso roda no `Application.onCreate`.
 | Pool de bitmaps | ≤ 1/4 do cache, teto 24 MB (8 MB low-RAM) |
 | Base de página | ≤ 1440 px de largura (1080 low-RAM); zoom maior = tiles só do visível |
 | Tiles | 512×512 ARGB_8888 = 1 MiB cada |
-| Capas | ~20 KB em disco; decodificadas no tamanho exibido |
+| Capas | ~20 KB em disco (WebP, 360 px); decodificadas em RGB_565; LRU de 24 MB |
 | Tamanhos de página | 8 bytes/página (5000 páginas = 40 KB) |
 
 - `onTrimMemory(TRIM_MEMORY_UI_HIDDEN+)` → descarta tudo fora do plano atual e esvazia o pool.
+- Leitor em segundo plano (`ON_STOP`, exceto mudança de configuração) → pipeline pausado: cache e
+  pool liberados, nada renderiza nem mede; ao voltar, as páginas visíveis são re-renderizadas
+  (~100 ms de papel em branco — troca consciente por memória e energia).
 - Fechar o documento → caches e pool esvaziados, engine fechada, worker cancelado.
 - O PDF nunca é carregado inteiro: as engines leem blocos sob demanda (`pread`).
 

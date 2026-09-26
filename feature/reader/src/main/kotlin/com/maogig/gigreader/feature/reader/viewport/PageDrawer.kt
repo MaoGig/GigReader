@@ -98,7 +98,9 @@ internal class PageDrawer {
             dst.set(left, top, left + width, top + height)
             canvas.drawRect(dst, paperPaint)
 
-            val base = pipeline.bitmap(planner.baseKey(layout, page))
+            // Falls back to a base of another size (rotation, resize, page-gap change, refined page
+            // size) until the exact one is rendered: a scaled page instead of a blank sheet.
+            val base = pipeline.baseBitmap(planner.baseKey(layout, page))
             if (base != null) {
                 canvas.drawBitmap(base, null, dst, bitmapPaint)
             } else if (pipeline.isFailed(page)) {

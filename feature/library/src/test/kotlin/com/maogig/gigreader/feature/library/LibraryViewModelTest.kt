@@ -7,6 +7,7 @@ import com.maogig.gigreader.core.data.library.ItemKind
 import com.maogig.gigreader.core.data.library.ItemRef
 import com.maogig.gigreader.core.data.library.LibrarySearchResults
 import com.maogig.gigreader.core.data.library.MoveResult
+import com.maogig.gigreader.core.data.library.TrashEntry
 import com.maogig.gigreader.core.model.Document
 import com.maogig.gigreader.core.model.DocumentSource
 import com.maogig.gigreader.core.model.DocumentType
@@ -26,6 +27,8 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import java.io.File
+import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -43,6 +46,9 @@ class LibraryViewModelTest {
     private val importer = FakeImportGateway()
     private val now = 1_000 * DAY
     private val libraryRoot = File("library-root")
+
+    /** Per test instead of the process-wide flag, so tests never depend on each other. */
+    private val trashPurgeStarted = AtomicBoolean(false)
 
     @BeforeTest
     fun setUp() {
@@ -65,6 +71,7 @@ class LibraryViewModelTest {
             clock = Clock { now },
             computeDispatcher = dispatcher,
             ioDispatcher = dispatcher,
+            trashPurgeStarted = trashPurgeStarted,
         )
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
         return vm
@@ -133,41 +140,185 @@ class LibraryViewModelTest {
     }
 
     @Test
-    fun pdfFilterHidesFoldersAndNotes() = runTest(dispatcher) {
+    fun pdfFilterOnTheHomeListsEveryDocumentOfTheLibrary() = runTest(dispatcher) {
         library.setContents(
             null,
             FolderContents(listOf(folder("a")), listOf(doc("d1")), listOf(note("n1"))),
         )
+        library.allDocuments.value = listOf(doc("d2", folderId = "a"), doc("d1"))
         val vm = viewModel()
         vm.setFilter(LibraryFilter.PDFS)
         advanceUntilIdle()
 
         val state = vm.uiState.value
+        assertEquals(LibraryFilter.PDFS, state.filter)
         assertIs<LibraryRow.ActiveFilter>(state.rows.first())
-        assertEquals(listOf("doc:d1"), state.cellKeys())
+        // Folders and notes hidden; the document stored in folder "a" is found from the Home.
+        assertEquals(listOf("doc:d1", "doc:d2"), state.cellKeys())
     }
 
     @Test
-    fun recentFilterUsesThirtyDayWindowAndLibraryWideShelves() = runTest(dispatcher) {
-        library.setContents(
-            null,
-            FolderContents(
-                emptyList(),
-                listOf(doc("old", lastOpenedAt = now - 40 * DAY), doc("never")),
-                emptyList(),
-            ),
+    fun homeObservesOnlyTheQueriesOfTheActiveView() = runTest(dispatcher) {
+        library.allNotes.value = listOf(note("n1", folderId = "a"), note("n2", folderId = "b"))
+        val vm = viewModel()
+        advanceUntilIdle()
+        assertEquals(1, library.contentsOf(null).subscriptionCount.value)
+        assertEquals(1, library.continueReading.subscriptionCount.value)
+        assertEquals(0, library.allNotes.subscriptionCount.value)
+        assertEquals(0, library.allDocuments.subscriptionCount.value)
+
+        vm.setFilter(LibraryFilter.NOTES)
+        advanceUntilIdle()
+        assertEquals(listOf(LibrarySection.NOTES), vm.uiState.value.rows.filterIsInstance<LibraryRow.Header>().map { it.section })
+        assertEquals(listOf("note:n1", "note:n2"), vm.uiState.value.cellKeys())
+        assertEquals(1, library.allNotes.subscriptionCount.value)
+        assertEquals(0, library.contentsOf(null).subscriptionCount.value, "the root listing is not needed meanwhile")
+        assertEquals(0, library.continueReading.subscriptionCount.value)
+        assertEquals(0, library.recentNotes.subscriptionCount.value)
+
+        vm.setFilter(LibraryFilter.ALL)
+        advanceUntilIdle()
+        assertEquals(0, library.allNotes.subscriptionCount.value)
+        assertEquals(1, library.contentsOf(null).subscriptionCount.value)
+    }
+
+    @Test
+    fun recentFilterObservesDocumentsOpenedInTheLastThirtyDays() = runTest(dispatcher) {
+        library.allDocuments.value = listOf(
+            doc("old", folderId = "a", lastOpenedAt = now - 40 * DAY),
+            doc("recent", folderId = "a", lastOpenedAt = now - 10 * DAY),
+            doc("never"),
         )
-        // Opened recently but stored in a folder: still found from the Home.
-        library.continueReading.value = listOf(doc("recent", folderId = "a", lastOpenedAt = now - 10 * DAY))
         val vm = viewModel()
         vm.setFilter(LibraryFilter.RECENT)
         advanceUntilIdle()
 
+        assertEquals(listOf(now - RECENT_WINDOW_MILLIS), library.openedSinceCalls)
         assertEquals(listOf("doc:recent"), vm.uiState.value.cellKeys())
+    }
 
+    @Test
+    fun annotatedFilterCoversEveryFolder() = runTest(dispatcher) {
+        library.allDocuments.value = listOf(doc("plain"), doc("marked", folderId = "a", annotations = 3))
+        val vm = viewModel()
         vm.setFilter(LibraryFilter.ANNOTATED)
         advanceUntilIdle()
+        assertEquals(listOf("doc:marked"), vm.uiState.value.cellKeys())
+
+        library.allDocuments.value = listOf(doc("plain"))
+        advanceUntilIdle()
         assertEquals(EmptyKind.FILTER, vm.uiState.value.rows.filterIsInstance<LibraryRow.Empty>().single().kind)
+    }
+
+    @Test
+    fun favoritesViewCombinesFavoriteDocumentsAndNotesOfEveryFolder() = runTest(dispatcher) {
+        library.favorites.value = listOf(doc("d1", folderId = "a", favorite = true))
+        library.favoriteNotes.value = listOf(note("n1", folderId = "b", favorite = true))
+        val vm = viewModel()
+        advanceUntilIdle()
+        library.favoriteLimits.clear()
+
+        vm.setFilter(LibraryFilter.FAVORITES)
+        advanceUntilIdle()
+        assertEquals(listOf("doc:d1", "note:n1"), vm.uiState.value.cellKeys())
+        assertEquals(listOf(Int.MAX_VALUE), library.favoriteLimits, "the view is not capped like the shelf")
+    }
+
+    @Test
+    fun filtersInsideAFolderOnlyUseItsContents() = runTest(dispatcher) {
+        library.setContents("a", FolderContents(listOf(folder("sub")), listOf(doc("d1", folderId = "a")), listOf(note("n1"))))
+        library.allDocuments.value = listOf(doc("elsewhere", folderId = "b"))
+        val vm = viewModel(folderId = "a")
+        vm.setFilter(LibraryFilter.PDFS)
+        advanceUntilIdle()
+
+        assertEquals(listOf("doc:d1"), vm.uiState.value.cellKeys())
+        assertEquals(0, library.allDocuments.subscriptionCount.value)
+    }
+
+    @Test
+    fun folderPanelListsEveryFolderDepthFirst() = runTest(dispatcher) {
+        library.setTree(TreeNode("c", null, "Gamma"), TreeNode("b", "a", "Beta"), TreeNode("a", null, "Alpha"))
+        val vm = viewModel(folderId = "b")
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.folderPanel.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(FolderPanelRow("a", "Alpha", 0), FolderPanelRow("b", "Beta", 1), FolderPanelRow("c", "Gamma", 0)),
+            vm.folderPanel.value,
+        )
+    }
+
+    @Test
+    fun homePurgesExpiredTrashOncePerProcess() = runTest(dispatcher) {
+        viewModel()
+        advanceUntilIdle()
+        assertEquals(1, library.purged)
+
+        viewModel()
+        viewModel(folderId = "a")
+        advanceUntilIdle()
+        assertEquals(1, library.purged, "later Home screens and folders do not purge again")
+    }
+
+    @Test
+    fun failedPurgeIsRetriedByTheNextHome() = runTest(dispatcher) {
+        library.purgeFailure = IOException("disk")
+        val vm = viewModel()
+        val events = events(vm)
+        advanceUntilIdle()
+        assertEquals(0, library.purged)
+        assertTrue(events.isEmpty(), "a failed purge is silent")
+
+        library.purgeFailure = null
+        viewModel()
+        advanceUntilIdle()
+        assertEquals(1, library.purged)
+    }
+
+    @Test
+    fun duplicateUsesTheLocalizedCopyTitle() = runTest(dispatcher) {
+        val vm = viewModel()
+        val events = events(vm)
+        advanceUntilIdle()
+
+        vm.duplicate("d1", copyTitle = "Paper (cópia)")
+        advanceUntilIdle()
+
+        assertEquals(listOf("d1" to "Paper (cópia)"), library.duplicated)
+        assertEquals(LibraryEvent.Message(LibraryMessage.Duplicated, undoable = true), events.single())
+        assertTrue(vm.undoManager.state.value.canUndo)
+    }
+
+    @Test
+    fun duplicateImportInTheTrashCanBeRestored() = runTest(dispatcher) {
+        library.documents["d1"] = document("d1", DocumentSource.Managed("d1.pdf"), trashedAt = 5 * DAY)
+        library.trash.value = listOf(TrashEntry(ItemRef("d1", ItemKind.DOCUMENT), "d1", trashedAt = 5 * DAY))
+        val vm = viewModel()
+        val events = events(vm)
+        advanceUntilIdle()
+
+        vm.restoreDocumentFromTrash("d1")
+        advanceUntilIdle()
+
+        assertEquals(listOf(listOf(ItemRef("d1", ItemKind.DOCUMENT))), library.restored)
+        assertEquals(LibraryEvent.Message(LibraryMessage.Restored("d1")), events.single())
+    }
+
+    @Test
+    fun documentTrashedWithItsFolderIsNotRestoredAlone() = runTest(dispatcher) {
+        library.documents["d1"] = document("d1", DocumentSource.Managed("d1.pdf"), trashedAt = 5 * DAY)
+        // Only its folder is a trash root.
+        library.trash.value = listOf(TrashEntry(ItemRef("f", ItemKind.FOLDER), "Papers", trashedAt = 5 * DAY))
+        val vm = viewModel()
+        val events = events(vm)
+        advanceUntilIdle()
+
+        vm.restoreDocumentFromTrash("d1")
+        advanceUntilIdle()
+
+        assertTrue(library.restored.isEmpty())
+        assertEquals(LibraryEvent.Message(LibraryMessage.RestoreWithFolder), events.single())
     }
 
     @Test
@@ -259,6 +410,7 @@ class LibraryViewModelTest {
     @Test
     fun hiddenSelectionNeverTakesPartInBulkActions() = runTest(dispatcher) {
         library.setContents(null, FolderContents(emptyList(), listOf(doc("d1")), listOf(note("n1"))))
+        library.allNotes.value = listOf(note("n1"))
         val vm = viewModel()
         advanceUntilIdle()
         vm.onLongPress(ItemRef("d1", ItemKind.DOCUMENT))
@@ -451,7 +603,7 @@ class LibraryViewModelTest {
         assertEquals(1, importer.cancelled)
     }
 
-    private fun document(id: String, source: DocumentSource) = Document(
+    private fun document(id: String, source: DocumentSource, trashedAt: Long? = null) = Document(
         id = id,
         folderId = null,
         title = id,
@@ -463,5 +615,6 @@ class LibraryViewModelTest {
         pageCount = 1,
         createdAt = 0,
         modifiedAt = 0,
+        trashedAt = trashedAt,
     )
 }

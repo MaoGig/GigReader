@@ -58,9 +58,10 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
-        <!-- Shares library files with other apps (share / open in another app) without copies. -->
+        <!-- Shares library files with other apps (share / open in another app) without copies.
+             A FileProvider that reports the document title as the file name (not "<uuid>.pdf"). -->
         <provider
-            android:name="androidx.core.content.FileProvider"
+            android:name=".share.LibraryFileProvider"
             android:authorities="${applicationId}.files"
             android:exported="false"
             android:grantUriPermissions="true">

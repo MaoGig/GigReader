@@ -3,6 +3,9 @@
     <string name="notes_back">Back</string>
     <string name="notes_title_placeholder">Title</string>
     <string name="notes_body_placeholder">Start writing…</string>
+    <!-- Accessibility labels of the editor fields (read even when they contain text). -->
+    <string name="notes_title_label">Title</string>
+    <string name="notes_body_label">Note</string>
     <string name="notes_status_saving">Saving…</string>
     <string name="notes_status_saved">Saved</string>
     <string name="notes_status_failed">Couldn\'t save</string>

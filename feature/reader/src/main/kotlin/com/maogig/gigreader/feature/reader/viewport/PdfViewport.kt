@@ -50,12 +50,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.maogig.gigreader.core.common.io.PageSizes
 import com.maogig.gigreader.core.common.render.DocumentLayout
-import com.maogig.gigreader.core.common.render.PagePosition
 import com.maogig.gigreader.core.common.render.RenderPlanner
 import com.maogig.gigreader.core.common.render.ViewportTransform
 import com.maogig.gigreader.core.model.ReaderPageBackground
@@ -184,8 +184,9 @@ fun PdfViewport(
     pageDescription: (page: Int, pageCount: Int) -> String,
     nextPageLabel: String,
     previousPageLabel: String,
+    toggleControlsLabel: String,
     onTap: () -> Unit,
-    onPositionChanged: (PagePosition, Float) -> Unit,
+    onPositionChanged: (ViewportPosition) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -223,7 +224,7 @@ fun PdfViewport(
                     val l = inputs.layout ?: return@collect
                     if (inputs.width <= 0f || inputs.height <= 0f) return@collect
                     pipeline.request(planner.plan(l, inputs.transform, inputs.width, inputs.height, includeTiles = !inputs.zooming))
-                    currentOnPositionChanged(state.topPosition(), inputs.transform.zoom)
+                    currentOnPositionChanged(state.position())
                 }
         }
 
@@ -234,6 +235,12 @@ fun PdfViewport(
                 .testTag("reader_viewport")
                 .semantics {
                     contentDescription = description
+                    // What a tap does (show/hide the reader chrome), so TalkBack users can bring the
+                    // hidden controls back.
+                    onClick(label = toggleControlsLabel) {
+                        currentOnTap()
+                        true
+                    }
                     customActions = listOf(
                         CustomAccessibilityAction(nextPageLabel) {
                             motion.goToPage((state.currentPage + 1).coerceAtMost(pageCount - 1))

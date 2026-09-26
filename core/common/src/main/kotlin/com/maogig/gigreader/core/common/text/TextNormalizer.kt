@@ -24,11 +24,14 @@ object TextNormalizer {
 object FileNames {
     private val invalidChars = Regex("[\\\\/:*?\"<>|\\u0000-\\u001F]")
 
-    /** Title shown in the library for an imported file: name without extension, never blank. */
-    fun titleFromFileName(fileName: String?): String {
+    /**
+     * Title shown in the library for an imported file: name without extension, never blank.
+     * [fallback] is used when the name yields no title; callers pass a localized "Untitled".
+     */
+    fun titleFromFileName(fileName: String?, fallback: String = "Untitled"): String {
         val base = fileName?.substringAfterLast('/')?.trim().orEmpty()
         val withoutExt = if (base.lowercase().endsWith(".pdf")) base.dropLast(4) else base
-        return withoutExt.trim().ifEmpty { "Untitled" }
+        return withoutExt.trim().ifEmpty { fallback }
     }
 
     /** File name safe for export targets (SAF will also de-duplicate names itself). */

@@ -138,17 +138,20 @@ tocar na UI.
 
 | Tabela | Conteúdo | Observações |
 |---|---|---|
-| `folders` | árvore de pastas (`parent_id`) | lixeira em cascata via `trash_root_id` |
-| `documents` | metadados, origem (gerenciado/linkado), `content_hash`, tamanho, páginas, favorito, arquivado, `annotation_count` | `annotation_count` desnormalizado (atualizado na mesma transação) evita N+1 e subconsultas no filtro "anotados" |
-| `reading_positions` | `page`, `page_offset`, `zoom`, `max_page_reached` | separado de `documents` (alta frequência de escrita, não gera sync) |
+| `folders` | árvore de pastas (`parent_id`), `search_name` | lixeira em cascata via `trash_root_id` |
+| `documents` | metadados, origem (gerenciado/linkado), `content_hash`, tamanho, páginas, favorito, arquivado, `annotation_count`, `search_title` | `annotation_count` desnormalizado (atualizado na mesma transação) evita N+1 e subconsultas no filtro "anotados" |
+| `reading_positions` | `page` + `page_offset` (página do topo, para restaurar), `zoom`, `offset_x_fraction` (deslocamento horizontal com zoom), `current_page` (página mostrada no indicador e em "Continuar lendo"), `max_page_reached` (maior página visível, para o % lido) | separado de `documents` (alta frequência de escrita, não gera sync) |
 | `page_metrics` | tamanhos de todas as páginas (blob de 8 bytes/página) | dado derivado; reabrir um PDF de 2000 páginas tem layout instantâneo |
-| `notes` | notas rápidas; podem apontar para documento + página | criação instantânea, sem pasta obrigatória |
+| `notes` | notas rápidas; podem apontar para documento + página; `search_text` | criação instantânea, sem pasta obrigatória |
 | `text_annotations` | highlight/underline/strikeout: `page`, `text`, `rects` normalizados, `color`, `note`, `char_start/char_end` | tinta/desenho serão **tabelas separadas** (§39) |
 | `bookmarks` | página + título | |
-| `tags`, `document_tags` | tags normalizadas (`#ASME` → `asme`) | N:N |
+| `tags`, `document_tags` | tags normalizadas (`#ASME` → `asme`) | N:N; a ligação também tem `modified_at`/`version`/`deleted_at` (desvincular é uma mudança sincronizável) |
 
 Campos comuns de sync em todas as entidades do usuário: `id` (UUID), `created_at`, `modified_at`,
 `version`, `deleted_at`. Itens de biblioteca também têm `trashed_at` e `trash_root_id`.
+Invariante: nenhuma linha viva fica sob uma pasta excluída — mover/importar/desfazer para uma pasta
+que não está mais viva cai na raiz, e excluir uma pasta para sempre reanexa à raiz os filhos vivos
+(na mesma transação).
 
 ### 4.2 Decisões importantes
 
@@ -163,6 +166,10 @@ Campos comuns de sync em todas as entidades do usuário: `id` (UUID), `created_a
   lista só as raízes. Itens expiram em 30 dias (purga preguiçosa, sem job periódico).
 - **Índices** em toda coluna usada em `WHERE`/`ORDER BY` de listas: `folder_id`, `parent_id`,
   `last_opened_at`, `modified_at`, `favorite`, `content_hash`, `(document_id, page)`.
+- **Busca sem acento e sem caixa** ("difusão" = "Difusao"): colunas `search_*` com o texto
+  normalizado (NFD sem marcas combinantes, minúsculas) gravadas em toda inserção/renomeação/edição;
+  a consulta é normalizada da mesma forma (`SearchKeys`) e escapa `%`/`_`. Sem índice (LIKE infixo
+  não usa índice); FTS4 entra na fase 4.
 - **Projeções leves** para listas (`DocumentRow`, `NoteRow` com `substr(body, 1, 160)`): rolar a
   biblioteca nunca carrega corpo de notas nem anotações.
 
@@ -287,8 +294,14 @@ Library(folderId?) ──► Reader(documentId)          (busca da biblioteca fi
 ExternalReader(uri)      ← ACTION_VIEW ("Abrir com"), sem importar
 ```
 
-- **Intents**: `ACTION_VIEW` (application/pdf) → Reader externo; `ACTION_SEND`/`SEND_MULTIPLE` →
-  importação automática; atalho de launcher "Nova nota".
+- **Intents**: `ACTION_VIEW` (application/pdf) → empilha o Reader externo; se o intent criou a
+  activity ("Abrir com" de outro app), Voltar devolve ao app de origem. `ACTION_SEND`/`SEND_MULTIPLE`
+  → importação automática na raiz, com o resultado mostrado em qualquer tela (snackbar no nível do
+  app quando a biblioteca não está visível); Voltar na raiz com importação pendente manda a tarefa
+  para trás em vez de finalizá-la. Atalho de launcher "Nova nota". Intents relançados pelo Recentes
+  (`FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY`) são ignorados (as permissões de URI já expiraram).
+- **Sem duplicatas na pilha**: breadcrumbs e o painel de pastas voltam à entrada existente
+  (`navigateOrPopTo`/`popToRoot`), limpando estado e ViewModels das entradas removidas.
 - **Adaptativo**: Compact = barra superior + FAB; Medium/Expanded = `NavigationRail` + grade larga
   + painel de pastas; no leitor, Expanded = painel lateral (miniaturas/anotações) + página.
 

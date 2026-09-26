@@ -12,8 +12,13 @@ import androidx.room.PrimaryKey
  * - Library items (folders, documents, notes) also have trashed_at + trash_root_id: moving a folder
  *   to the trash cascades to its descendants with trash_root_id = folder id, so "restore" brings the
  *   whole subtree back and the Trash screen only lists roots.
- * - "Live" rows are `trashed_at IS NULL AND deleted_at IS NULL`.
+ * - "Live" rows are `trashed_at IS NULL AND deleted_at IS NULL`. A live row never has a parent
+ *   folder that is trashed or deleted (the repositories check it inside their write transactions).
  * - Columns used in WHERE/ORDER BY of list queries are indexed.
+ * - Name search uses `search_*` columns holding TextNormalizer.normalize of the displayed text
+ *   (no accents, lower case), written by the repositories together with the text they index, so
+ *   "relatorio" finds "RELATÓRIO". They are matched with an infix LIKE, which no index can serve,
+ *   so they are deliberately not indexed.
  */
 
 @Entity(
@@ -24,6 +29,8 @@ data class FolderEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "parent_id") val parentId: String?,
     val name: String,
+    /** Normalized [name] for search (see file header). */
+    @ColumnInfo(name = "search_name") val searchName: String,
     @ColumnInfo(name = "created_at") val createdAt: Long,
     @ColumnInfo(name = "modified_at") val modifiedAt: Long,
     val version: Long,
@@ -47,6 +54,8 @@ data class DocumentEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "folder_id") val folderId: String?,
     val title: String,
+    /** Normalized [title] for search (see file header). */
+    @ColumnInfo(name = "search_title") val searchTitle: String,
     @ColumnInfo(name = "file_name") val fileName: String,
     /** [com.maogig.gigreader.core.model.DocumentType] name. */
     val type: String,
@@ -82,9 +91,15 @@ data class DocumentEntity(
 )
 data class ReadingPositionEntity(
     @PrimaryKey @ColumnInfo(name = "document_id") val documentId: String,
+    /** Page at the top of the viewport: with [pageOffset], [zoom] and [offsetXFraction] it restores the view. */
     val page: Int,
     @ColumnInfo(name = "page_offset") val pageOffset: Float,
     val zoom: Float,
+    /** Horizontal offset / document width (zoom > 1). */
+    @ColumnInfo(name = "offset_x_fraction") val offsetXFraction: Float,
+    /** Page shown by the reader's "X / N" indicator (viewport center); "Continue reading" shows it. */
+    @ColumnInfo(name = "current_page") val currentPage: Int,
+    /** Highest page ever visible at the bottom edge of the viewport ("% read"). */
     @ColumnInfo(name = "max_page_reached") val maxPageReached: Int,
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
     val version: Long,
@@ -122,13 +137,24 @@ data class PageMetricsEntity(
 
 @Entity(
     tableName = "notes",
-    indices = [Index("folder_id"), Index("linked_document_id"), Index("modified_at"), Index("trash_root_id")],
+    indices = [
+        Index("folder_id"),
+        Index("linked_document_id"),
+        Index("modified_at"),
+        Index("favorite"),
+        Index("trash_root_id"),
+    ],
 )
 data class NoteEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "folder_id") val folderId: String?,
     val title: String,
     val body: String,
+    /**
+     * Normalized title and body for search, separated by a newline (a normalized query never
+     * contains one, so a match cannot span both). See file header.
+     */
+    @ColumnInfo(name = "search_text") val searchText: String,
     @ColumnInfo(name = "linked_document_id") val linkedDocumentId: String?,
     @ColumnInfo(name = "linked_page") val linkedPage: Int?,
     val favorite: Boolean,
@@ -228,5 +254,7 @@ data class DocumentTagEntity(
     @ColumnInfo(name = "document_id") val documentId: String,
     @ColumnInfo(name = "tag_id") val tagId: String,
     @ColumnInfo(name = "created_at") val createdAt: Long,
+    @ColumnInfo(name = "modified_at") val modifiedAt: Long,
+    val version: Long,
     @ColumnInfo(name = "deleted_at") val deletedAt: Long?,
 )

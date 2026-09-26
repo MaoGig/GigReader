@@ -1,5 +1,6 @@
 package com.maogig.gigreader.feature.reader.viewport
 
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -12,6 +13,21 @@ import com.maogig.gigreader.core.common.render.PagePosition
 import com.maogig.gigreader.core.common.render.ViewportMath
 import com.maogig.gigreader.core.common.render.ViewportTransform
 import com.maogig.gigreader.core.common.render.ZoomBuckets
+import kotlin.math.ulp
+
+/**
+ * Where the viewport is, as reported for persistence: [top] and [zoom] and [offsetXFraction]
+ * restore the view; [currentPage] is the page of the "X / N" indicator; [lastVisiblePage] is the
+ * last page visible at the bottom edge (the last page once the view reaches the document end).
+ */
+@Immutable
+data class ViewportPosition(
+    val top: PagePosition,
+    val zoom: Float,
+    val offsetXFraction: Float,
+    val currentPage: Int,
+    val lastVisiblePage: Int,
+)
 
 /**
  * State of the document viewport: the transform (zoom + offsets) over a [DocumentLayout].
@@ -24,6 +40,7 @@ import com.maogig.gigreader.core.common.render.ZoomBuckets
 class PdfViewportState(
     initialPosition: PagePosition,
     initialZoom: Float,
+    initialOffsetXFraction: Float = 0f,
     val math: ViewportMath = ViewportMath(minZoom = 1f, maxZoom = 8f),
 ) {
     // A corrupt stored zoom (NaN/∞) would poison every coordinate; coerceIn lets NaN through.
@@ -52,6 +69,10 @@ class PdfViewportState(
     /** Position to restore once the first layout arrives (or after the layout is rebuilt). */
     private var pendingPosition: PagePosition? = initialPosition
 
+    /** Horizontal offset / document width to restore with the first layout (clamped there). */
+    private var pendingOffsetXFraction: Float =
+        if (initialOffsetXFraction.isFinite()) initialOffsetXFraction.coerceIn(0f, 1f) else 0f
+
     val isReady: Boolean get() = layout != null && viewportWidth > 0f && viewportHeight > 0f
 
     /** Page shown in "page X / N" (the page crossing the vertical center). */
@@ -68,6 +89,37 @@ class PdfViewportState(
     }
 
     /**
+     * Last page visible at the bottom edge. When the view is clamped at the end of the document
+     * (or the whole document fits), this is the last page even if the top edge is pages earlier.
+     */
+    fun lastVisiblePage(): Int {
+        val l = layout ?: return currentPage
+        if (l.pageCount == 0) return 0
+        val t = transform
+        val bottom = t.offsetY + viewportHeight / t.zoom
+        // Clamping computes offsetY = totalHeight - visibleHeight; allow for its rounding.
+        if (bottom >= l.totalHeight - 4f * l.totalHeight.ulp) return l.pageCount - 1
+        val visible = l.pagesIn(t.offsetY, bottom)
+        return if (visible.isEmpty()) l.pageAt(bottom) else visible.last
+    }
+
+    /** Horizontal offset divided by the document width (0 unless zoomed in). */
+    fun offsetXFraction(): Float {
+        val l = layout ?: return pendingOffsetXFraction
+        if (l.viewportWidth <= 0f) return 0f
+        return (transform.offsetX / l.viewportWidth).coerceIn(0f, 1f)
+    }
+
+    /** Everything the reader persists about the current view. */
+    fun position(): ViewportPosition = ViewportPosition(
+        top = topPosition(),
+        zoom = transform.zoom,
+        offsetXFraction = offsetXFraction(),
+        currentPage = currentPage,
+        lastVisiblePage = lastVisiblePage(),
+    )
+
+    /**
      * Installs a new layout (first open, measured page sizes, rotation, window resize, page-gap
      * change) while keeping the page under the top edge in place.
      */
@@ -75,11 +127,13 @@ class PdfViewportState(
         val old = layout
         if (old === newLayout && width == viewportWidth && height == viewportHeight) return
         val anchor = pendingPosition ?: old?.let { math.topPosition(transform, it) } ?: PagePosition(0, 0f)
-        val horizontalFraction = if (old != null && old.viewportWidth > 0f) transform.offsetX / old.viewportWidth else 0f
+        val horizontalFraction =
+            if (old != null && old.viewportWidth > 0f) transform.offsetX / old.viewportWidth else pendingOffsetXFraction
         layout = newLayout
         viewportWidth = width
         viewportHeight = height
         pendingPosition = null
+        pendingOffsetXFraction = 0f
         val placed = math.transformFor(anchor, transform.zoom, newLayout, width, height)
         transform = math.clamp(placed.copy(offsetX = horizontalFraction * newLayout.viewportWidth), newLayout, width, height)
     }
@@ -130,16 +184,23 @@ class PdfViewportState(
 
     companion object {
         /**
-         * Saves the size-independent reading position (page, fraction, zoom), so the viewport comes
-         * back where the user was after an activity recreation (theme, locale, font scale) or
-         * process death instead of jumping back to where the document was opened.
+         * Saves the size-independent reading position (page, fraction, zoom, horizontal fraction),
+         * so the viewport comes back where the user was after an activity recreation (theme,
+         * locale, font scale) or process death instead of jumping back to where the document was
+         * opened.
          */
         val Saver: Saver<PdfViewportState, FloatArray> = Saver(
             save = { state ->
                 val position = state.topPosition()
-                floatArrayOf(position.page.toFloat(), position.pageOffset, state.transform.zoom)
+                floatArrayOf(position.page.toFloat(), position.pageOffset, state.transform.zoom, state.offsetXFraction())
             },
-            restore = { saved -> PdfViewportState(PagePosition(saved[0].toInt(), saved[1]), saved[2]) },
+            restore = { saved ->
+                PdfViewportState(
+                    initialPosition = PagePosition(saved[0].toInt(), saved[1]),
+                    initialZoom = saved[2],
+                    initialOffsetXFraction = saved.getOrElse(3) { 0f },
+                )
+            },
         )
     }
 }

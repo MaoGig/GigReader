@@ -55,6 +55,9 @@ data class RenderStats(
  * the worker renders missing keys in plan order (page by page, loading each page once) and then
  * suspends. With nothing to render it consumes no CPU, runs no timer and holds no thread.
  * Work that falls out of the plan while queued is skipped, never rendered.
+ *
+ * While the reader is not visible the owner calls [pause] (all bitmaps released, nothing rendered)
+ * and [resume] when it comes back.
  */
 class RenderPipeline(
     private val document: PdfDocument,
@@ -63,10 +66,20 @@ class RenderPipeline(
     workerDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     private val pool = BitmapPool(budget.poolBytes)
+
+    /**
+     * The most recently cached base key of each page, so a page whose exact key is missing (new
+     * width after a rotation, resize or page-gap change; refined page size) can be drawn from a
+     * base of another size meanwhile. May briefly name an evicted key; lookups then miss.
+     */
+    private val basesByPage = ConcurrentHashMap<Int, PageKey>()
     private val cache = WeightedLruCache<RenderKey, Bitmap>(
         maxWeight = budget.cacheBytes,
         weigher = { _, bitmap -> bitmap.allocationByteCount.toLong() },
-        onEvicted = { _, bitmap -> pool.release(bitmap) },
+        onEvicted = { key, bitmap ->
+            if (key is PageKey) basesByPage.remove(key.page, key)
+            recycle(bitmap)
+        },
     )
     private val signal = Channel<Unit>(Channel.CONFLATED)
     private val failedPages: MutableSet<Int> = ConcurrentHashMap.newKeySet()
@@ -82,6 +95,14 @@ class RenderPipeline(
 
     @Volatile
     private var closed = false
+
+    /** Set by [pause]: nothing is rendered or cached until [resume]. */
+    @Volatile
+    private var paused = false
+
+    /** Bumped by [resume]: the worker then forgets which keys it already attempted for the plan. */
+    @Volatile
+    private var attemptsGeneration = 0
 
     @Volatile
     private var lastRenderMillis = 0L
@@ -116,6 +137,20 @@ class RenderPipeline(
     /** Bitmap for [key] if rendered. Called from draw code; never renders or blocks. */
     fun bitmap(key: RenderKey): Bitmap? = cache.peek(key)
 
+    /**
+     * Base bitmap for [key], or else a cached base of the same page at another size (to be scaled
+     * by the caller) until the exact one is rendered. Called from draw code; allocates nothing
+     * when [key] is cached.
+     */
+    fun baseBitmap(key: PageKey): Bitmap? {
+        cache.peek(key)?.let { return it }
+        val other = basesByPage[key.page] ?: return null
+        if (other == key) return null
+        val bitmap = cache.peek(other)
+        if (bitmap == null) basesByPage.remove(key.page, other)
+        return bitmap
+    }
+
     fun isFailed(page: Int): Boolean = page in failedPages
 
     /** Drops everything that is not needed for the current plan (memory pressure). */
@@ -123,6 +158,26 @@ class RenderPipeline(
         val keep = wanted
         cache.removeIf { it !in keep }
         pool.clear()
+    }
+
+    /**
+     * The document is not visible (reader stopped or covered): releases every cached and pooled
+     * bitmap and renders nothing until [resume]. A render already running on the engine finishes
+     * but its result is dropped. Idempotent.
+     */
+    fun pause() {
+        if (closed) return
+        paused = true
+        releaseAll()
+    }
+
+    /** The document is visible again: renders what the current plan needs. No-op unless paused. */
+    fun resume() {
+        if (closed || !paused) return
+        paused = false
+        // Keys attempted before the pause were released with the cache; attempt them again.
+        attemptsGeneration++
+        signal.trySend(Unit)
     }
 
     /** Drops tiles of other zoom buckets, e.g. after the zoom settled at a new level. */
@@ -150,8 +205,18 @@ class RenderPipeline(
         RenderDiagnostics.unregister(this)
         worker.cancel()
         signal.close()
+        releaseAll()
+    }
+
+    private fun releaseAll() {
         cache.clear()
         pool.clear()
+        basesByPage.clear()
+    }
+
+    /** Returns [bitmap] to the pool, unless everything is being released (paused or closed). */
+    private fun recycle(bitmap: Bitmap) {
+        if (!paused && !closed) pool.release(bitmap)
     }
 
     private suspend fun drain() {
@@ -159,31 +224,42 @@ class RenderPipeline(
         // Each key is attempted at most once per plan. Without this, a budget too small for the
         // whole plan would evict and re-render the same bitmaps forever (a CPU/battery loop).
         var attemptedFor: RenderPlan? = null
+        var attemptedGeneration = -1
+        var oomRetriedFor: RenderPlan? = null
         val attempted = HashSet<RenderKey>()
         try {
-            while (true) {
+            while (!paused) {
                 val current = plan
-                if (current !== attemptedFor) {
+                val generation = attemptsGeneration
+                if (current !== attemptedFor || generation != attemptedGeneration) {
                     attempted.clear()
                     attemptedFor = current
+                    attemptedGeneration = generation
                 }
                 val next = current.keys.firstOrNull { it !in attempted && it !in cache && it.page !in failedPages }
                     ?: return
-                renderPage(next.page, current, attempted)
+                if (!renderPage(next.page, current, attempted) && oomRetriedFor !== current) {
+                    // The OOM trim may have evicted visible bitmaps already marked as attempted, which
+                    // would leave them blank until the next scroll: retry the plan once (only once, so
+                    // a real memory shortage cannot turn into a render loop).
+                    oomRetriedFor = current
+                    attempted.clear()
+                }
             }
         } finally {
             busy = false
         }
     }
 
-    private suspend fun renderPage(page: Int, current: RenderPlan, attempted: MutableSet<RenderKey>) {
+    /** Renders the missing keys of [page]. Returns `false` if it ran out of memory (cache trimmed). */
+    private suspend fun renderPage(page: Int, current: RenderPlan, attempted: MutableSet<RenderKey>): Boolean {
         val candidates = current.keys.filter { it.page == page && it !in attempted && it !in cache }
         attempted.addAll(candidates)
         // A bitmap the platform refuses to draw would crash the UI thread on the next frame
         // ("Canvas: trying to draw too large bitmap"); such keys (extremely tall pages at base
         // resolution) are never rendered. The page stays blank at base zoom; its tiles still work.
         val keys = candidates.filter { it.bitmapBytes() <= MAX_DRAWABLE_BITMAP_BYTES }
-        if (keys.isEmpty()) return
+        if (keys.isEmpty()) return true
         val jobs = ArrayList<RenderJob>(keys.size)
         val started = SystemClock.elapsedRealtime()
         val rendered = try {
@@ -193,50 +269,53 @@ class RenderPipeline(
                 jobs += when (key) {
                     is PageKey -> RenderJob(
                         pool.obtain(key.widthPx, key.heightPx), key.widthPx, key.heightPx,
-                        isStale = { key !in wanted },
+                        isStale = { paused || key !in wanted },
                     )
                     is TileKey -> RenderJob(
                         pool.obtain(key.tileSize, key.tileSize), key.pageWidthPx, key.pageHeightPx, key.left, key.top,
-                        isStale = { key !in wanted },
+                        isStale = { paused || key !in wanted },
                     )
                 }
             }
             PerfTrace.async(PerfTrace.RENDER_PAGE) { document.render(page, jobs) }
         } catch (e: CancellationException) {
             // Cancellation almost always means close(): keep the emptied pool empty.
-            if (!closed) jobs.forEach { pool.release(it.target) }
+            jobs.forEach { recycle(it.target) }
             throw e
         } catch (e: OutOfMemoryError) {
-            jobs.forEach { pool.release(it.target) }
+            jobs.forEach { recycle(it.target) }
             cache.trimTo(cache.maxWeight / 2)
             pool.clear()
-            return
+            return false
         } catch (e: Exception) {
             // Broken page (or engine error): remember it so we do not retry in a loop; the viewport
             // draws an error placeholder for it.
-            jobs.forEach { pool.release(it.target) }
+            jobs.forEach { recycle(it.target) }
             failedPages.add(page)
             _version.value++
-            return
+            return true
         }
         lastRenderMillis = SystemClock.elapsedRealtime() - started
-        // Closed while this (uninterruptible) render ran: do not refill the cache/pool that close()
-        // just emptied; the bitmaps are simply dropped.
-        if (closed) return
+        // Closed or paused while this (uninterruptible) render ran: do not refill the cache/pool
+        // that close()/pause() just emptied; the bitmaps are simply dropped.
+        if (closed || paused) return true
         var any = false
         for (i in jobs.indices) {
             if (rendered[i]) {
                 // Starts the GPU texture upload on RenderThread now, not on the first draw.
                 jobs[i].target.prepareToDraw()
-                cache.put(keys[i], jobs[i].target)
+                val key = keys[i]
+                if (cache.put(key, jobs[i].target) && key is PageKey) basesByPage[key.page] = key
                 completed++
                 any = true
             } else {
-                pool.release(jobs[i].target)
+                recycle(jobs[i].target)
                 skipped++
             }
         }
-        if (any) _version.value++
+        // pause()/close() may have emptied the cache while the loop above refilled it.
+        if (paused || closed) releaseAll() else if (any) _version.value++
+        return true
     }
 
     private fun RenderKey.bitmapBytes(): Long = when (this) {

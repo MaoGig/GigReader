@@ -8,6 +8,13 @@ class GigReaderApplication : Application() {
     lateinit var container: AppContainer
         private set
 
+    /**
+     * [container], or null before [onCreate] ran: content providers are created, and may be
+     * called on binder threads, before the application's onCreate.
+     */
+    val containerOrNull: AppContainer?
+        get() = if (::container.isInitialized) container else null
+
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)

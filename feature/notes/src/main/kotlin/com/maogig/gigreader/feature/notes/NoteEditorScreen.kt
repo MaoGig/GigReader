@@ -48,6 +48,8 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -259,13 +261,16 @@ private fun TitleField(
     val colors = MaterialTheme.colorScheme
     val textStyle = remember(typography, colors) { typography.headlineSmall.merge(TextStyle(color = colors.onSurface)) }
     val text = value()
+    // The placeholder disappears once there is text: the label keeps the field named for screen readers.
+    val label = stringResource(R.string.notes_title_label)
     BasicTextField(
         value = text,
         onValueChange = onValueChange,
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 8.dp)
-            .focusRequester(focusRequester),
+            .focusRequester(focusRequester)
+            .semantics { contentDescription = label },
         textStyle = textStyle,
         singleLine = true,
         keyboardOptions = KeyboardOptions(
@@ -284,6 +289,8 @@ private fun TitleField(
                         text = stringResource(R.string.notes_title_placeholder),
                         style = textStyle,
                         color = colors.onSurfaceVariant,
+                        // Same words as the field's label: not read twice.
+                        modifier = Modifier.clearAndSetSemantics {},
                     )
                 }
                 innerTextField()
@@ -303,10 +310,13 @@ private fun BodyField(
     val colors = MaterialTheme.colorScheme
     val textStyle = remember(typography, colors) { typography.bodyLarge.merge(TextStyle(color = colors.onSurface)) }
     val text = value()
+    val label = stringResource(R.string.notes_body_label)
     BasicTextField(
         value = text,
         onValueChange = onValueChange,
-        modifier = modifier.focusRequester(focusRequester),
+        modifier = modifier
+            .focusRequester(focusRequester)
+            .semantics { contentDescription = label },
         textStyle = textStyle,
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
         cursorBrush = SolidColor(colors.primary),

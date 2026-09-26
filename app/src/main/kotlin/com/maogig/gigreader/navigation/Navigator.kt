@@ -59,10 +59,27 @@ class Navigator internal constructor(initial: List<BackStackEntry>) {
         return true
     }
 
-    /** Clears the stack down to the library root and pushes [destination] (used for intents). */
+    /**
+     * Goes to [destination] without duplicating it: if an entry for it is already in the back stack
+     * (e.g. an ancestor folder tapped in the breadcrumbs), pops every entry above the topmost one
+     * (their saved state and ViewModels are cleared); otherwise pushes it.
+     */
+    fun navigateOrPopTo(destination: Destination) {
+        val index = backStack.indexOfLast { it.destination == destination }
+        if (index >= 0) popAbove(index) else backStack.add(newEntry(destination))
+    }
+
+    /** Pops every entry above the library root. */
+    fun popToRoot() = popAbove(0)
+
+    /** Clears the stack down to the library root and pushes [destination] (benchmark hook). */
     fun resetTo(destination: Destination) {
-        while (backStack.size > 1) onEntryRemoved(backStack.removeAt(backStack.lastIndex))
+        popAbove(0)
         if (destination != backStack.first().destination) backStack.add(newEntry(destination))
+    }
+
+    private fun popAbove(index: Int) {
+        while (backStack.lastIndex > index) onEntryRemoved(backStack.removeAt(backStack.lastIndex))
     }
 
     companion object {

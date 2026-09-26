@@ -141,6 +141,7 @@
     <!-- Snackbars -->
     <string name="library_action_undo">Undo</string>
     <string name="library_action_open">Open</string>
+    <string name="library_action_restore">Restore</string>
     <string name="library_msg_imported">Imported %1$s</string>
     <plurals name="library_msg_imported_many">
         <item quantity="one">Imported %d document</item>
@@ -180,6 +181,8 @@
     </plurals>
     <string name="library_msg_renamed">Renamed</string>
     <string name="library_msg_duplicated">Duplicate created</string>
+    <!-- Title of a duplicated document; %1$s is the original title. -->
+    <string name="library_copy_title">%1$s (copy)</string>
     <string name="library_msg_share_nothing">Only PDFs can be shared</string>
     <string name="library_msg_share_failed">Couldn\'t share these files</string>
     <string name="library_msg_error">Something went wrong. Please try again.</string>
@@ -220,6 +223,7 @@
     <string name="library_trash_kind_document">PDF document</string>
     <string name="library_trash_kind_note">Note</string>
     <string name="library_msg_restored">Restored %1$s</string>
+    <string name="library_msg_restore_with_folder">It went to the trash with its folder. Restore the folder from the trash.</string>
     <string name="library_msg_deleted_forever">Deleted forever</string>
     <string name="library_msg_trash_emptied">Trash emptied</string>
 </resources>

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -33,6 +34,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -84,9 +86,16 @@ import java.io.File
 /** Space kept free under the last row so the FAB never covers it. */
 private val FabClearance = 88.dp
 
+/** Width of the folder panel shown next to the grid on expanded screens. */
+private val FolderPanelWidth = 280.dp
+
 /**
  * The library: the Home (a modern personal library) when [folderId] is `null`, otherwise a folder.
  * Entry point used by the app's navigation (see GigReaderApp).
+ *
+ * [onOpenFolder] is also used by the breadcrumbs and the folder panel for folders that may already be
+ * in the back stack (the app pops back to them instead of pushing a copy). [onOpenRoot] returns to the
+ * library root (breadcrumb root, folder panel); when `null`, [onNavigateUp] is used instead.
  */
 @Composable
 fun LibraryRoute(
@@ -98,6 +107,7 @@ fun LibraryRoute(
     onOpenTrash: () -> Unit,
     onOpenSettings: () -> Unit,
     onNavigateUp: (() -> Unit)?,
+    onOpenRoot: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val factory = remember(folderId, deps) {
@@ -124,6 +134,7 @@ fun LibraryRoute(
         onOpenTrash = onOpenTrash,
         onOpenSettings = onOpenSettings,
         onNavigateUp = onNavigateUp,
+        onOpenRoot = onOpenRoot ?: onNavigateUp,
         modifier = modifier,
     )
 }
@@ -139,14 +150,18 @@ private fun LibraryScreen(
     onOpenTrash: () -> Unit,
     onOpenSettings: () -> Unit,
     onNavigateUp: (() -> Unit)?,
+    onOpenRoot: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
-    val large = rememberWindowSize().isLarge
+    val windowSize = rememberWindowSize()
+    val large = windowSize.isLarge
+    val showFolderPanel = windowSize.canShowSidePanel
     val gridState = rememberLazyGridState()
 
+    val currentContext by rememberUpdatedState(context)
     val currentOpenFolder by rememberUpdatedState(onOpenFolder)
     val currentOpenDocument by rememberUpdatedState(onOpenDocument)
     val currentOpenNote by rememberUpdatedState(onOpenNote)
@@ -198,7 +213,10 @@ private fun LibraryScreen(
                     ItemAction.UNFAVORITE -> viewModel.setFavorite(refs, false)
                     ItemAction.SHARE -> viewModel.share(refs)
                     ItemAction.INFO -> if (item is LibraryItem.DocumentEntry) viewModel.showInfo(item)
-                    ItemAction.DUPLICATE -> viewModel.duplicate(item.id)
+                    ItemAction.DUPLICATE -> viewModel.duplicate(
+                        documentId = item.id,
+                        copyTitle = currentContext.getString(R.string.library_copy_title, item.title),
+                    )
                     ItemAction.DELETE -> viewModel.trash(refs)
                 }
             },
@@ -220,6 +238,7 @@ private fun LibraryScreen(
                     undoable = event.undoable,
                     onUndo = viewModel::undo,
                     onOpenDocument = { currentOpenDocument(it) },
+                    onRestoreDocument = viewModel::restoreDocumentFromTrash,
                 )
             }
         }
@@ -244,6 +263,7 @@ private fun LibraryScreen(
                     undoable = false,
                     onUndo = {},
                     onOpenDocument = { currentOpenDocument(it) },
+                    onRestoreDocument = viewModel::restoreDocumentFromTrash,
                 )
             }
         }
@@ -342,6 +362,7 @@ private fun LibraryScreen(
                         topBarInsets = topBarInsets,
                         dragDrop = dragDrop,
                         onNavigateUp = onNavigateUp,
+                        onOpenRoot = onOpenRoot,
                         onOpenFolder = onOpenFolder,
                         onOpenTrash = onOpenTrash,
                         onOpenSettings = onOpenSettings,
@@ -353,7 +374,7 @@ private fun LibraryScreen(
                 contentWindowInsets = contentInsets,
             ) { innerPadding ->
                 val layoutDirection = LocalLayoutDirection.current
-                Column(
+                Row(
                     Modifier
                         .fillMaxSize()
                         .padding(
@@ -362,21 +383,42 @@ private fun LibraryScreen(
                             top = innerPadding.calculateTopPadding(),
                         ),
                 ) {
-                    ImportBanner(progress = viewModel.importProgress, onCancel = viewModel::cancelImport)
-                    if (!state.loading) {
-                        LibraryGrid(
-                            state = state,
-                            large = large,
-                            bottomPadding = innerPadding.calculateBottomPadding(),
-                            gridState = gridState,
-                            covers = covers,
+                    if (showFolderPanel) {
+                        // docs/ARCHITECTURE.md §9: expanded screens keep the folder tree next to the grid.
+                        FolderPanel(
+                            rows = viewModel.folderPanel,
+                            currentFolderId = state.folderId,
                             dragDrop = dragDrop,
-                            callbacks = callbacks,
-                            onImport = launchImport,
-                            onNewFolder = viewModel::requestNewFolder,
-                            onNewNote = viewModel::createNote,
-                            onClearFilter = { viewModel.setFilter(LibraryFilter.ALL) },
+                            onOpenRoot = onOpenRoot,
+                            onOpenFolder = onOpenFolder,
+                            bottomPadding = innerPadding.calculateBottomPadding(),
+                            modifier = Modifier
+                                .width(FolderPanelWidth)
+                                .fillMaxHeight(),
                         )
+                        VerticalDivider()
+                    }
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                    ) {
+                        ImportBanner(progress = viewModel.importProgress, onCancel = viewModel::cancelImport)
+                        if (!state.loading) {
+                            LibraryGrid(
+                                state = state,
+                                large = large,
+                                bottomPadding = innerPadding.calculateBottomPadding(),
+                                gridState = gridState,
+                                covers = covers,
+                                dragDrop = dragDrop,
+                                callbacks = callbacks,
+                                onImport = launchImport,
+                                onNewFolder = viewModel::requestNewFolder,
+                                onNewNote = viewModel::createNote,
+                                onClearFilter = { viewModel.setFilter(LibraryFilter.ALL) },
+                            )
+                        }
                     }
                 }
             }
@@ -398,6 +440,7 @@ private fun LibraryScreen(
     )
 }
 
+/** Shares [files]; the FileProvider work runs off the main thread (see [shareDocuments]). */
 private suspend fun shareOrReport(context: Context, host: SnackbarHostState, files: List<File>) {
     if (context.shareDocuments(files)) return
     showLibraryMessage(
@@ -420,6 +463,7 @@ private fun LibraryTopBar(
     topBarInsets: WindowInsets,
     dragDrop: DragDropState,
     onNavigateUp: (() -> Unit)?,
+    onOpenRoot: (() -> Unit)?,
     onOpenFolder: (String) -> Unit,
     onOpenTrash: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -464,9 +508,11 @@ private fun LibraryTopBar(
             onNavigateUp = onNavigateUp,
             crumbs = state.breadcrumbs,
             dragDrop = dragDrop,
+            rootCrumbEnabled = onOpenRoot != null,
             onCrumbClick = { crumb ->
+                // The app pops back to an ancestor already in the stack instead of pushing a copy.
                 val id = crumb.folderId
-                if (id == null) onNavigateUp?.invoke() else onOpenFolder(id)
+                if (id == null) onOpenRoot?.invoke() else onOpenFolder(id)
             },
             windowInsets = topBarInsets,
             actions = actions,

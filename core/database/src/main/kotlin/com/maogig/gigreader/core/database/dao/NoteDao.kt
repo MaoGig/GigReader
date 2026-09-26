@@ -20,11 +20,24 @@ interface NoteDao {
     @Query("SELECT $NOTE_ROW FROM notes WHERE trashed_at IS NULL AND deleted_at IS NULL ORDER BY modified_at DESC LIMIT :limit")
     fun observeRecent(limit: Int): Flow<List<NoteRow>>
 
+    /** Every live note in any folder, most recently modified first (modified_at index). */
+    @Query("SELECT $NOTE_ROW FROM notes WHERE trashed_at IS NULL AND deleted_at IS NULL ORDER BY modified_at DESC")
+    fun observeAll(): Flow<List<NoteRow>>
+
+    /** Live favorite notes in any folder, most recently modified first (favorite index). */
+    @Query(
+        """
+        SELECT $NOTE_ROW FROM notes WHERE favorite = 1 AND trashed_at IS NULL AND deleted_at IS NULL
+        ORDER BY modified_at DESC
+        """,
+    )
+    fun observeFavorites(): Flow<List<NoteRow>>
+
+    /** [query] is a normalized, LIKE-escaped pattern (SearchKeys.likeQuery); title and body are both searched. */
     @Query(
         """
         SELECT $NOTE_ROW FROM notes
-        WHERE (title LIKE '%' || :query || '%' ESCAPE '\' OR body LIKE '%' || :query || '%' ESCAPE '\')
-          AND trashed_at IS NULL AND deleted_at IS NULL
+        WHERE search_text LIKE '%' || :query || '%' ESCAPE '\' AND trashed_at IS NULL AND deleted_at IS NULL
         ORDER BY modified_at DESC LIMIT :limit
         """,
     )
@@ -45,12 +58,22 @@ interface NoteDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(note: NoteEntity)
 
-    @Query("UPDATE notes SET title = :title, body = :body, modified_at = :now, version = version + 1 WHERE id = :id")
-    suspend fun updateContent(id: String, title: String, body: String, now: Long)
+    /** [searchText] is SearchKeys.note([title], [body]). */
+    @Query(
+        """
+        UPDATE notes SET title = :title, body = :body, search_text = :searchText, modified_at = :now,
+          version = version + 1
+        WHERE id = :id
+        """,
+    )
+    suspend fun updateContent(id: String, title: String, body: String, searchText: String, now: Long)
 
-    /** Title only: never rewrites the body, so it cannot race with the editor's autosave. */
-    @Query("UPDATE notes SET title = :title, modified_at = :now, version = version + 1 WHERE id = :id")
-    suspend fun rename(id: String, title: String, now: Long)
+    /**
+     * Title only: never rewrites the body, so it cannot race with the editor's autosave. The caller
+     * computes [searchText] from the current body inside the same write transaction.
+     */
+    @Query("UPDATE notes SET title = :title, search_text = :searchText, modified_at = :now, version = version + 1 WHERE id = :id")
+    suspend fun rename(id: String, title: String, searchText: String, now: Long)
 
     @Query("UPDATE notes SET folder_id = :folderId, modified_at = :now, version = version + 1 WHERE id IN (:ids)")
     suspend fun move(ids: List<String>, folderId: String?, now: Long)
@@ -98,13 +121,35 @@ interface NoteDao {
 
     @Query(
         """
-        UPDATE notes SET deleted_at = :now, title = '', body = '', trashed_at = NULL, trash_root_id = NULL,
+        UPDATE notes SET deleted_at = :now, title = '', body = '', search_text = '', trashed_at = NULL, trash_root_id = NULL,
           modified_at = :now, version = version + 1
         WHERE id IN (:ids)
         """,
     )
     suspend fun tombstone(ids: List<String>, now: Long)
 
-    @Query("DELETE FROM notes WHERE id = :id AND title = '' AND body = '' AND linked_document_id IS NULL")
+    /**
+     * Hard-deletes an empty note that never had content (still at version 1, i.e. never written
+     * since its creation), so it cannot have been synced anywhere. Returns the number of rows deleted.
+     */
+    @Query(
+        """
+        DELETE FROM notes
+        WHERE id = :id AND version = 1 AND title = '' AND body = '' AND linked_document_id IS NULL
+        """,
+    )
     suspend fun deleteIfEmpty(id: String): Int
+
+    /**
+     * Turns an empty note that had content at some point into a tombstone, so the deletion can be
+     * propagated by sync. Returns the number of rows changed.
+     */
+    @Query(
+        """
+        UPDATE notes SET deleted_at = :now, title = '', body = '', search_text = '', trashed_at = NULL,
+          trash_root_id = NULL, modified_at = :now, version = version + 1
+        WHERE id = :id AND title = '' AND body = '' AND linked_document_id IS NULL AND deleted_at IS NULL
+        """,
+    )
+    suspend fun tombstoneIfEmpty(id: String, now: Long): Int
 }

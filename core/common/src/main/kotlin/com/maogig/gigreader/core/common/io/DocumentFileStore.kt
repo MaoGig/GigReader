@@ -36,16 +36,23 @@ class DocumentFileStore(val rootDir: File) {
      * Atomically moves a fully written [incoming] file to its final location for [documentId] and
      * returns the path to store in the database (relative to [rootDir]).
      */
-    fun commit(incoming: File, documentId: String, extension: String = "pdf"): String {
+    fun commit(incoming: File, documentId: String, extension: String = "pdf"): String =
+        commitTo(incoming, "$documentId.$extension")
+
+    /**
+     * Atomically moves a fully written [incoming] file to [relativePath] (replacing whatever is
+     * there), e.g. to give back its file to a document whose managed copy went missing. Returns
+     * [relativePath].
+     */
+    fun commitTo(incoming: File, relativePath: String): String {
         ensureDir(rootDir)
-        val relative = "$documentId.$extension"
-        val target = File(rootDir, relative)
+        val target = fileFor(relativePath)
         if (!incoming.renameTo(target)) {
             // renameTo can fail across mount points; both live in rootDir, so this means a real error.
             throw IOException("could not move imported file into the library")
         }
         syncDirectory(rootDir)
-        return relative
+        return relativePath
     }
 
     fun delete(relativePath: String): Boolean = fileFor(relativePath).let { !it.exists() || it.delete() }

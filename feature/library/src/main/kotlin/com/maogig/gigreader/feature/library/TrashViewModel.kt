@@ -35,7 +35,8 @@ internal data class TrashUiState(
 
 /**
  * Trash: lists trashed roots, restores them or deletes them for good. Expired items (30 days) are
- * purged lazily when this screen opens; there is no background job (docs/PERFORMANCE_AND_POWER.md).
+ * purged lazily when this screen opens (and once per process by the Home, see LibraryViewModel);
+ * there is no background job (docs/PERFORMANCE_AND_POWER.md).
  */
 internal class TrashViewModel(
     private val library: LibraryRepository,

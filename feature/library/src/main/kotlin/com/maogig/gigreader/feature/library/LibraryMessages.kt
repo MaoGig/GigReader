@@ -9,6 +9,8 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.core.content.FileProvider
 import com.maogig.gigreader.core.data.importer.ImportError
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 internal const val PDF_MIME_TYPE = "application/pdf"
@@ -47,6 +49,7 @@ internal fun Context.libraryMessageText(message: LibraryMessage): String {
             R.string.library_msg_restored,
             message.title.ifBlank { getString(R.string.library_untitled_note) },
         )
+        LibraryMessage.RestoreWithFolder -> getString(R.string.library_msg_restore_with_folder)
         LibraryMessage.DeletedForever -> getString(R.string.library_msg_deleted_forever)
         LibraryMessage.TrashEmptied -> getString(R.string.library_msg_trash_emptied)
     }
@@ -68,9 +71,14 @@ internal fun LibraryMessage.openableDocumentId(): String? = when (this) {
     else -> null
 }
 
+/** Trashed document a snackbar can bring back ("Already in your library (in the trash) · Restore"). */
+internal fun LibraryMessage.restorableDocumentId(): String? =
+    if (this is LibraryMessage.AlreadyInLibrary && inTrash) documentId else null
+
 /**
- * Shows [message] and runs its action: "Undo" for undoable edits, "Open" for imports. Suspends
- * until the snackbar is dismissed; cancelling the caller dismisses it.
+ * Shows [message] and runs its action: "Undo" for undoable edits, "Open" for imports, "Restore" for
+ * a duplicate that sits in the trash. Suspends until the snackbar is dismissed; cancelling the
+ * caller dismisses it.
  */
 internal suspend fun showLibraryMessage(
     host: SnackbarHostState,
@@ -79,11 +87,14 @@ internal suspend fun showLibraryMessage(
     undoable: Boolean,
     onUndo: () -> Unit,
     onOpenDocument: (String) -> Unit,
+    onRestoreDocument: (String) -> Unit = {},
 ) {
     val openId = message.openableDocumentId()
+    val restoreId = message.restorableDocumentId()
     val actionLabel = when {
         undoable -> context.getString(R.string.library_action_undo)
         openId != null -> context.getString(R.string.library_action_open)
+        restoreId != null -> context.getString(R.string.library_action_restore)
         else -> null
     }
     val result = host.showSnackbar(
@@ -95,18 +106,35 @@ internal suspend fun showLibraryMessage(
         when {
             undoable -> onUndo()
             openId != null -> onOpenDocument(openId)
+            restoreId != null -> onRestoreDocument(restoreId)
         }
     }
 }
 
 /**
  * Shares managed PDFs through the app's FileProvider with a read grant. Returns `false` when the
- * files cannot be exposed (provider missing) or no app can receive them.
+ * files cannot be exposed (provider missing) or no app can receive them. Building the URIs
+ * canonicalizes paths and parses the provider's XML: done on [Dispatchers.IO], never on the main
+ * thread; only the chooser is started from the caller's (main) thread.
  */
-internal fun Context.shareDocuments(files: List<File>): Boolean = try {
+internal suspend fun Context.shareDocuments(files: List<File>): Boolean {
     val authority = libraryFileProviderAuthority()
-    val uris = ArrayList<Uri>(files.size)
-    for (file in files) uris.add(FileProvider.getUriForFile(this, authority, file))
+    val uris = try {
+        withContext(Dispatchers.IO) {
+            files.mapTo(ArrayList<Uri>(files.size)) { FileProvider.getUriForFile(this@shareDocuments, authority, it) }
+        }
+    } catch (e: IllegalArgumentException) {
+        return false
+    }
+    return try {
+        startActivity(Intent.createChooser(shareIntent(uris), getString(R.string.library_share_title)))
+        true
+    } catch (e: ActivityNotFoundException) {
+        false
+    }
+}
+
+private fun shareIntent(uris: ArrayList<Uri>): Intent {
     val send = if (uris.size == 1) {
         Intent(Intent.ACTION_SEND).apply {
             type = PDF_MIME_TYPE
@@ -119,10 +147,5 @@ internal fun Context.shareDocuments(files: List<File>): Boolean = try {
         }
     }
     send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    startActivity(Intent.createChooser(send, getString(R.string.library_share_title)))
-    true
-} catch (e: IllegalArgumentException) {
-    false
-} catch (e: ActivityNotFoundException) {
-    false
+    return send
 }

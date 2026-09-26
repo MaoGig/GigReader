@@ -134,6 +134,29 @@ class LibraryContentTest {
     }
 
     @Test
+    fun restoreActionOnlyForDuplicatesInTheTrash() {
+        assertEquals("d0", LibraryMessage.AlreadyInLibrary("A", "d0", inTrash = true).restorableDocumentId())
+        assertEquals(null, LibraryMessage.AlreadyInLibrary("A", "d0", inTrash = false).restorableDocumentId())
+        assertEquals(null, LibraryMessage.Imported("A", "d1").restorableDocumentId())
+    }
+
+    @Test
+    fun filterViewsListDocumentsThenNotesOfTheGivenPool() {
+        val content = build(
+            contents = FolderContents(
+                emptyList(),
+                listOf(doc("b", favorite = true), doc("a", favorite = true), doc("x")),
+                listOf(note("n", favorite = true)),
+            ),
+            filter = LibraryFilter.FAVORITES,
+        )
+        assertEquals(
+            listOf("filter", "header:DOCUMENTS", "doc:a", "doc:b", "header:NOTES", "note:n"),
+            content.rows.map { it.key },
+        )
+    }
+
+    @Test
     fun menuActionsDependOnKindAndFavorite() {
         assertEquals(
             listOf(ItemAction.OPEN, ItemAction.RENAME, ItemAction.MOVE, ItemAction.DELETE),

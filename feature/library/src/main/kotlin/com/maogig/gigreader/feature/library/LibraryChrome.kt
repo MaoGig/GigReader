@@ -186,6 +186,7 @@ internal fun FolderTopBar(
     onNavigateUp: (() -> Unit)?,
     crumbs: List<Crumb>,
     dragDrop: DragDropState,
+    rootCrumbEnabled: Boolean,
     onCrumbClick: (Crumb) -> Unit,
     windowInsets: WindowInsets,
     actions: @Composable RowScope.() -> Unit,
@@ -217,7 +218,7 @@ internal fun FolderTopBar(
             Breadcrumbs(
                 crumbs = crumbs,
                 dragDrop = dragDrop,
-                rootEnabled = onNavigateUp != null,
+                rootEnabled = rootCrumbEnabled,
                 onCrumbClick = onCrumbClick,
             )
         }
@@ -367,14 +368,15 @@ private fun CrumbButton(
         if (current) null else crumb.folderId?.let { DropTarget.Folder(it) } ?: DropTarget.Root
     }
     val hover by remember(target) { derivedStateOf { target != null && dragDrop.hovered == target } }
+    val owner = remember { Any() }
     if (target != null) {
         DisposableEffect(target, dragDrop) {
-            onDispose { dragDrop.unregister(target) }
+            onDispose { dragDrop.unregister(owner) }
         }
     }
     Box(
         modifier = Modifier
-            .then(if (target != null) Modifier.dropTarget(target, dragDrop) else Modifier)
+            .then(if (target != null) Modifier.dropTarget(owner, target, dragDrop) else Modifier)
             .heightIn(min = 48.dp)
             .clip(MaterialTheme.shapes.small)
             .background(if (hover) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
@@ -733,8 +735,9 @@ internal fun FavoritesDropZone(dragDrop: DragDropState, canDrop: () -> Boolean, 
     val allowed = remember { canDrop() }
     if (!allowed) return
     val hover by remember(dragDrop) { derivedStateOf { dragDrop.hovered == DropTarget.Favorites } }
+    val owner = remember { Any() }
     DisposableEffect(dragDrop) {
-        onDispose { dragDrop.unregister(DropTarget.Favorites) }
+        onDispose { dragDrop.unregister(owner) }
     }
     Surface(
         modifier = modifier
@@ -742,7 +745,7 @@ internal fun FavoritesDropZone(dragDrop: DragDropState, canDrop: () -> Boolean, 
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
             .padding(16.dp)
             .heightIn(min = 64.dp)
-            .dropTarget(DropTarget.Favorites, dragDrop),
+            .dropTarget(owner, DropTarget.Favorites, dragDrop),
         shape = MaterialTheme.shapes.large,
         color = if (hover) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest,
         contentColor = if (hover) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,

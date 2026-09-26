@@ -39,7 +39,9 @@ sealed interface LibraryItem {
         val folderId: String?,
         val fileSize: Long,
         val pageCount: Int,
+        /** Zero-based page the reader's "X / N" indicator showed last time, `null` if never read. */
         val lastPage: Int?,
+        /** Highest zero-based page ever visible, `null` if never read. */
         val maxPageReached: Int?,
         val favorite: Boolean,
         val annotationCount: Int,
@@ -82,9 +84,12 @@ fun List<LibraryItem>.sortedForDisplay(order: SortOrder): List<LibraryItem> {
     return sortedWith(compareBy<LibraryItem> { if (it is LibraryItem.FolderEntry) 0 else 1 }.then(directed).then(byName))
 }
 
-/** "Last opened" for sorting: notes and folders are "used" when edited; unopened documents sort last. */
+/**
+ * "Last opened" for sorting: notes and folders are "used" when edited; a document never opened counts
+ * from when it was added, so a fresh import shows up among the recent items instead of at the end.
+ */
 private fun LibraryItem.lastUsed(): Long = when (this) {
-    is LibraryItem.DocumentEntry -> lastOpenedAt ?: 0L
+    is LibraryItem.DocumentEntry -> lastOpenedAt ?: createdAt
     is LibraryItem.NoteEntry -> modifiedAt
     is LibraryItem.FolderEntry -> modifiedAt
 }

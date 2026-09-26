@@ -2,6 +2,7 @@ package com.maogig.gigreader.feature.reader
 
 import android.app.Activity
 import android.app.Application
+import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -18,11 +19,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -55,13 +58,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -82,6 +90,7 @@ import com.maogig.gigreader.core.ui.theme.TabularNumbers
 import com.maogig.gigreader.feature.reader.viewport.PdfViewport
 import com.maogig.gigreader.feature.reader.viewport.PdfViewportState
 import com.maogig.gigreader.feature.reader.viewport.ViewportController
+import com.maogig.gigreader.feature.reader.viewport.ViewportPosition
 import com.maogig.gigreader.feature.reader.viewport.rememberViewportController
 
 /** Maximum page width on wide screens (tablet landscape keeps a readable measure). */
@@ -101,10 +110,28 @@ fun ReaderRoute(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val pageSizes by viewModel.pageSizes.collectAsStateWithLifecycle()
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.flush() }
+    // Energy: while the reader is not visible it keeps no bitmaps and does no work (the position is
+    // persisted right away). Leaving the composition (another screen pushed on top) counts as a
+    // stop; coming back registers the ON_START observer again, which receives ON_START at once.
+    // A configuration change (rotation, resize, theme) only recreates the activity: the bitmaps are
+    // kept, so the rotated pages are drawn from them until re-rendered at the new width.
+    val activity = LocalActivity.current
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.onStart() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        viewModel.onStop(changingConfigurations = activity?.isChangingConfigurations == true)
+    }
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.onStop(changingConfigurations = activity?.isChangingConfigurations == true) }
+    }
 
     when (val s = state) {
         ReaderUiState.Loading -> LoadingContent(modifier)
+        is ReaderUiState.PasswordRequired -> PasswordDialog(
+            wrongPassword = s.wrongPassword,
+            onSubmit = viewModel::submitPassword,
+            onDismiss = onBack,
+            modifier = modifier,
+        )
         is ReaderUiState.Error -> ErrorContent(s.error, onBack, modifier)
         is ReaderUiState.Ready -> {
             val sizes = pageSizes ?: return LoadingContent(modifier)
@@ -128,7 +155,7 @@ private fun ReaderContent(
     pageSizes: PageSizes,
     settings: AppSettings,
     onBack: () -> Unit,
-    onPositionChanged: (com.maogig.gigreader.core.common.render.PagePosition, Float) -> Unit,
+    onPositionChanged: (ViewportPosition) -> Unit,
     onAddToLibrary: () -> Unit,
     events: ReaderViewModel,
     modifier: Modifier = Modifier,
@@ -136,7 +163,7 @@ private fun ReaderContent(
     // Saveable: an activity recreation (theme/locale/font-scale change) or process death must not
     // send the reader back to the position the document was opened at.
     val viewportState = rememberSaveable(session, saver = PdfViewportState.Saver) {
-        PdfViewportState(session.initialPosition, session.initialZoom)
+        PdfViewportState(session.initialPosition, session.initialZoom, session.initialOffsetXFraction)
     }
     val animationsEnabled = LocalUiPreferences.current.animationsEnabled
     val controller = rememberViewportController(viewportState, animationsEnabled)
@@ -162,6 +189,7 @@ private fun ReaderContent(
     val pageLabel = stringResource(R.string.reader_page_description)
     val nextLabel = stringResource(R.string.reader_next_page)
     val previousLabel = stringResource(R.string.reader_previous_page)
+    val toggleControlsLabel = stringResource(R.string.reader_toggle_controls)
 
     Box(modifier.fillMaxSize().background(viewportBackground)) {
         PdfViewport(
@@ -176,6 +204,7 @@ private fun ReaderContent(
             pageDescription = { page, count -> String.format(pageLabel, page, count) },
             nextPageLabel = nextLabel,
             previousPageLabel = previousLabel,
+            toggleControlsLabel = toggleControlsLabel,
             onTap = { chromeVisible = !chromeVisible },
             onPositionChanged = onPositionChanged,
             modifier = Modifier.fillMaxSize(),
@@ -315,16 +344,22 @@ private fun ReaderBottomBar(
             ) {
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = stringResource(R.string.reader_previous_page))
             }
-            Text(
-                text = stringResource(R.string.reader_page_indicator, currentPage + 1, pageCount),
-                style = MaterialTheme.typography.labelLarge.merge(TabularNumbers),
-                textAlign = TextAlign.Center,
+            // 48 dp minimum touch target; the text is centered in it.
+            Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .widthIn(min = 96.dp)
+                    .heightIn(min = 48.dp)
                     .clickable(onClickLabel = stringResource(R.string.reader_go_to_page), onClick = onPageIndicatorClick)
-                    .padding(horizontal = 12.dp, vertical = 12.dp)
+                    .padding(horizontal = 12.dp)
                     .testTag("reader_page_indicator"),
-            )
+            ) {
+                Text(
+                    text = stringResource(R.string.reader_page_indicator, currentPage + 1, pageCount),
+                    style = MaterialTheme.typography.labelLarge.merge(TabularNumbers),
+                    textAlign = TextAlign.Center,
+                )
+            }
             IconButton(
                 onClick = { controller.goToPage(currentPage + 1) },
                 enabled = currentPage < pageCount - 1,
@@ -360,10 +395,65 @@ private fun GoToPageDialog(pageCount: Int, onGo: (Int) -> Unit, onDismiss: () ->
     )
 }
 
+/**
+ * Asks for the password of an encrypted PDF (API 35+). The text is kept only in memory (never in
+ * saved state) and leaves with the dialog; a wrong password shows [wrongPassword] and asks again.
+ */
+@Composable
+private fun PasswordDialog(
+    wrongPassword: Boolean,
+    onSubmit: (String) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var password by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    val submit = { if (password.isNotEmpty()) onSubmit(password) }
+    Box(modifier.fillMaxSize())
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.reader_password_title)) },
+        text = {
+            Column {
+                Text(
+                    text = stringResource(R.string.reader_password_message),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 16.dp),
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.reader_password_label)) },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { submit() }),
+                    isError = wrongPassword,
+                    supportingText = if (wrongPassword) {
+                        { Text(stringResource(R.string.reader_password_wrong)) }
+                    } else {
+                        null
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester)
+                        .testTag("reader_password"),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = password.isNotEmpty(), onClick = submit) { Text(stringResource(R.string.reader_password_open)) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.reader_cancel)) } },
+    )
+    LaunchedEffect(focusRequester) { runCatching { focusRequester.requestFocus() } }
+}
+
 @Composable
 private fun LoadingContent(modifier: Modifier = Modifier) {
+    val description = stringResource(R.string.reader_loading)
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator()
+        CircularProgressIndicator(Modifier.semantics { contentDescription = description })
     }
 }
 
@@ -376,6 +466,7 @@ private fun ErrorContent(error: ReaderError, onBack: () -> Unit, modifier: Modif
         ReaderError.CORRUPTED -> R.string.reader_error_open_title to R.string.reader_error_corrupted
         ReaderError.UNREADABLE -> R.string.reader_error_open_title to R.string.reader_error_unreadable
         ReaderError.OUT_OF_MEMORY -> R.string.reader_error_open_title to R.string.reader_error_memory
+        ReaderError.STORAGE -> R.string.reader_error_open_title to R.string.reader_error_storage
     }
     Column(
         modifier = modifier

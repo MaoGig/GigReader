@@ -144,6 +144,7 @@
     <!-- Snackbars -->
     <string name="library_action_undo">Desfazer</string>
     <string name="library_action_open">Abrir</string>
+    <string name="library_action_restore">Restaurar</string>
     <string name="library_msg_imported">%1$s importado</string>
     <plurals name="library_msg_imported_many">
         <item quantity="one">%d documento importado</item>
@@ -190,6 +191,8 @@
     </plurals>
     <string name="library_msg_renamed">Renomeado</string>
     <string name="library_msg_duplicated">Cópia criada</string>
+    <!-- Título de um documento duplicado; %1$s é o título original. -->
+    <string name="library_copy_title">%1$s (cópia)</string>
     <string name="library_msg_share_nothing">Só é possível compartilhar PDFs</string>
     <string name="library_msg_share_failed">Não foi possível compartilhar estes arquivos</string>
     <string name="library_msg_error">Algo deu errado. Tente novamente.</string>
@@ -233,6 +236,7 @@
     <string name="library_trash_kind_document">Documento PDF</string>
     <string name="library_trash_kind_note">Nota</string>
     <string name="library_msg_restored">%1$s restaurado</string>
+    <string name="library_msg_restore_with_folder">Ele foi para a lixeira junto com a pasta. Restaure a pasta pela lixeira.</string>
     <string name="library_msg_deleted_forever">Excluído para sempre</string>
     <string name="library_msg_trash_emptied">Lixeira esvaziada</string>
 </resources>

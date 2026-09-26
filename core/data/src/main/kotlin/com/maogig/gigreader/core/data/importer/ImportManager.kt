@@ -13,8 +13,10 @@ import com.maogig.gigreader.core.common.io.PageSizes
 import com.maogig.gigreader.core.common.io.copyAndHash
 import com.maogig.gigreader.core.common.text.FileNames
 import com.maogig.gigreader.core.data.library.CoverStore
+import com.maogig.gigreader.core.data.library.sweepLeftovers
 import com.maogig.gigreader.core.database.GigReaderDatabase
 import com.maogig.gigreader.core.database.SOURCE_MANAGED
+import com.maogig.gigreader.core.database.SearchKeys
 import com.maogig.gigreader.core.database.entity.DocumentEntity
 import com.maogig.gigreader.core.database.entity.PageMetricsEntity
 import com.maogig.gigreader.core.model.DocumentType
@@ -44,9 +46,17 @@ enum class ImportError { NOT_A_PDF, PASSWORD_PROTECTED, CORRUPTED, NO_SPACE, UNR
 sealed interface ImportOutcome {
     val displayName: String
 
+    /**
+     * The document is in the library: a new one, or an existing document with identical content whose
+     * managed file had gone missing and was given back ([documentId] is then that document's id).
+     * A password-protected PDF is imported too (page count 0, no cover): the reader asks for it.
+     */
     data class Imported(val documentId: String, override val displayName: String) : ImportOutcome
 
-    /** Identical content already exists (possibly in the trash); nothing was copied. */
+    /**
+     * Identical content already exists (possibly in the trash); nothing was added. If the existing
+     * document's file was missing, the incoming copy has been given back to it anyway.
+     */
     data class Duplicate(val existingId: String, override val displayName: String, val inTrash: Boolean) : ImportOutcome
 
     data class Failed(override val displayName: String, val error: ImportError) : ImportOutcome
@@ -68,6 +78,8 @@ data class ImportProgress(
  * hashing (single read of the source) → duplicate check by SHA-256 → validate with the PDF engine and
  * render the cover (the only time the library opens a PDF on its own) → atomic rename → one database
  * transaction. The worker suspends when the queue is empty, so an idle importer costs nothing.
+ *
+ * [untitledTitle] supplies the (localized) title of a file whose name yields none.
  */
 class ImportManager(
     private val resolver: ContentResolver,
@@ -79,6 +91,7 @@ class ImportManager(
     private val clock: Clock = Clock.System,
     private val ids: IdGenerator = IdGenerator.Uuid,
     private val io: CoroutineDispatcher = Dispatchers.IO,
+    private val untitledTitle: () -> String = { "Untitled" },
 ) {
     private data class Request(val uri: Uri, val folderId: String?, val generation: Int)
 
@@ -110,7 +123,10 @@ class ImportManager(
         uris.forEach { queue.trySend(Request(it, folderId, current)) }
         if (worker?.isActive != true) {
             worker = scope.launch(io) {
-                sweepLeftovers()
+                // Removes what interrupted imports or permanent deletions may have left behind (temp
+                // files, library files without a row, orphan covers) when the importer wakes up, never
+                // at app start; see sweepLeftovers for the guards.
+                sweepLeftovers(db, files, covers, clock.now())
                 for (request in queue) {
                     process(request)
                     // Reset once everything queued so far is done (compareAndSet: a concurrent
@@ -162,25 +178,52 @@ class ImportManager(
         } catch (_: RuntimeException) {
             // Some providers throw for unsupported columns; fall back to the URI.
         }
-        return Meta(name ?: uri.lastPathSegment?.substringAfterLast('/') ?: "document.pdf", size)
+        val fallback = name ?: uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+        return Meta(fallback ?: FileNames.ensureExtension(FileNames.sanitize(untitledTitle()), "pdf"), size)
     }
 
     private fun Request.isCancelled(): Boolean = this.generation != this@ImportManager.generation
 
-    /**
-     * Removes what interrupted imports or permanent deletions may have left behind (temp files,
-     * library files without a row). Runs when the importer wakes up, never at app start. Orphans are
-     * only swept when the database holds documents: if SQLite ever had to recreate an empty database
-     * after corruption, the files are the only copy left and must not be touched.
-     */
-    private suspend fun sweepLeftovers() {
-        val now = clock.now()
-        files.cleanupIncoming(now)
-        runCatching {
-            val dao = db.documentDao()
-            if (dao.count() > 0) files.cleanupOrphans(dao.managedPaths().toHashSet(), now)
+    /** Result of opening an incoming file with the engine. */
+    private sealed interface Validation {
+        data class Valid(val pageCount: Int, val firstWidth: Float, val firstHeight: Float) : Validation
+
+        /** A valid PDF that needs a password: imported as is, the reader asks for the password. */
+        data object PasswordProtected : Validation
+
+        data class Invalid(val error: ImportError) : Validation
+    }
+
+    /** Opens [file] with the engine and renders its cover as [coverId] (the only time the library opens a PDF). */
+    private suspend fun validate(file: File, coverId: String): Validation {
+        val document = try {
+            engine.open(file)
+        } catch (e: PdfOpenException.PasswordRequired) {
+            return Validation.PasswordProtected
+        } catch (e: PdfOpenException) {
+            return Validation.Invalid(e.toImportError())
+        }
+        try {
+            val pageCount = document.pageCount
+            if (pageCount <= 0) return Validation.Invalid(ImportError.CORRUPTED)
+            val size = document.pageSize(0)
+            try {
+                CoverRenderer.renderTo(document, covers.fileFor(coverId), CoverStore.WIDTH_PX)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // No cover is not a reason to refuse the document; the library regenerates it later.
+            }
+            return Validation.Valid(pageCount, size.width, size.height)
+        } finally {
+            document.close()
         }
     }
+
+    /** A managed document whose file is gone (e.g. deleted outside the app): a re-import can repair it. */
+    private fun DocumentEntity.managedFileIsMissing(): Boolean =
+        sourceKind == SOURCE_MANAGED && sourcePath.isNotEmpty() &&
+            runCatching { !files.fileFor(sourcePath).isFile }.getOrDefault(false)
 
     private suspend fun importOne(request: Request, meta: Meta): ImportOutcome = withContext(io) {
         // Taken off the queue just before cancelAll() drained it.
@@ -214,48 +257,52 @@ class ImportManager(
             if (!looksLikePdf(incoming)) return@withContext ImportOutcome.Failed(meta.name, ImportError.NOT_A_PDF)
 
             db.documentDao().findByHash(copy.sha256)?.let { existing ->
-                return@withContext ImportOutcome.Duplicate(existing.id, meta.name, inTrash = existing.trashedAt != null)
+                if (!existing.managedFileIsMissing()) {
+                    return@withContext ImportOutcome.Duplicate(existing.id, meta.name, inTrash = existing.trashedAt != null)
+                }
+                // Same content as a document whose file went missing: give the file back to it (its
+                // row, annotations and reading position stay) instead of a dead-end "duplicate". Its
+                // cover is replaced by a fresh render (none for a password-protected file).
+                covers.delete(existing.id)
+                val validation = validate(incoming, coverId = existing.id)
+                if (validation is Validation.Invalid) return@withContext ImportOutcome.Failed(meta.name, validation.error)
+                files.commitTo(incoming, existing.sourcePath)
+                keepIncoming = true
+                return@withContext if (existing.trashedAt == null) {
+                    ImportOutcome.Imported(existing.id, existing.title.ifEmpty { FileNames.titleFromFileName(meta.name, untitledTitle()) })
+                } else {
+                    ImportOutcome.Duplicate(existing.id, meta.name, inTrash = true)
+                }
             }
 
             // Validate with the engine and render the cover while the document is open anyway.
-            val document = try {
-                engine.open(incoming)
-            } catch (e: PdfOpenException) {
-                return@withContext ImportOutcome.Failed(meta.name, e.toImportError())
-            }
-            val pageCount: Int
-            val firstWidth: Float
-            val firstHeight: Float
-            try {
-                pageCount = document.pageCount
-                if (pageCount <= 0) return@withContext ImportOutcome.Failed(meta.name, ImportError.CORRUPTED)
-                val size = document.pageSize(0)
-                firstWidth = size.width
-                firstHeight = size.height
-                runCatching { CoverRenderer.renderTo(document, covers.fileFor(id), CoverStore.WIDTH_PX) }
-            } finally {
-                document.close()
-            }
+            val validation = validate(incoming, coverId = id)
+            if (validation is Validation.Invalid) return@withContext ImportOutcome.Failed(meta.name, validation.error)
+            val valid = validation as? Validation.Valid
 
             val relativePath = files.commit(incoming, id)
             keepIncoming = true // it has been renamed into the library
             val now = clock.now()
-            val title = FileNames.titleFromFileName(meta.name)
-            val sizes = PageSizes.uniform(pageCount, firstWidth, firstHeight)
+            val title = FileNames.titleFromFileName(meta.name, untitledTitle())
             try {
                 db.withTransaction {
+                    // The target folder may have been trashed or deleted while this file waited in the
+                    // queue: a live row under it would show up nowhere, so it goes to the root instead.
+                    val folderId = request.folderId?.takeIf { db.folderDao().isLive(it) }
                     db.documentDao().insert(
                         DocumentEntity(
                             id = id,
-                            folderId = request.folderId,
+                            folderId = folderId,
                             title = title,
+                            searchTitle = SearchKeys.of(title),
                             fileName = meta.name,
                             type = DocumentType.PDF.name,
                             sourceKind = SOURCE_MANAGED,
                             sourcePath = relativePath,
                             contentHash = copy.sha256,
                             fileSize = copy.bytes,
-                            pageCount = pageCount,
+                            // 0 for a password-protected PDF: set once the reader opens it.
+                            pageCount = valid?.pageCount ?: 0,
                             favorite = false,
                             archived = false,
                             annotationCount = 0,
@@ -268,9 +315,12 @@ class ImportManager(
                             deletedAt = null,
                         ),
                     )
-                    db.pageMetricsDao().upsert(
-                        PageMetricsEntity(id, pageCount, PageSizeCodec.encode(sizes), measuredCount = 1),
-                    )
+                    if (valid != null) {
+                        val sizes = PageSizes.uniform(valid.pageCount, valid.firstWidth, valid.firstHeight)
+                        db.pageMetricsDao().upsert(
+                            PageMetricsEntity(id, valid.pageCount, PageSizeCodec.encode(sizes), measuredCount = 1),
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 files.delete(relativePath)

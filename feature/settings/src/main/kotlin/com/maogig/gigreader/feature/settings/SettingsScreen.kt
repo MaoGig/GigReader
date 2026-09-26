@@ -46,6 +46,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -73,14 +74,30 @@ import com.maogig.gigreader.core.model.ReaderScrollMode
 import com.maogig.gigreader.core.model.SortField
 import com.maogig.gigreader.core.model.ThemeMode
 import com.maogig.gigreader.core.ui.components.SectionHeader
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-/** Grouped settings: appearance, reader, highlights, library and about. */
+/**
+ * Settings that exist in [AppSettings] but have no effect yet stay hidden until their feature ships:
+ * the page-by-page reader (Phase 2) and highlights (Phase 3). A visible option must do something.
+ */
+internal object UpcomingSettings {
+    const val SHOW_SCROLL_MODE = false
+    const val SHOW_HIGHLIGHT_COLOR = false
+}
+
+/**
+ * Grouped settings: appearance, reader, library and about. [appVersion] (e.g. the app's
+ * BuildConfig.VERSION_NAME) is shown as is; when `null` it is read from the package manager off the
+ * main thread.
+ */
 @Composable
 fun SettingsRoute(
     settings: SettingsRepository,
     onBack: () -> Unit,
     onOpenDiagnostics: (() -> Unit)?,
+    appVersion: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val factory = remember(settings) { viewModelFactory { initializer { SettingsViewModel(settings) } } }
@@ -99,7 +116,7 @@ fun SettingsRoute(
 
     SettingsScreen(
         state = state,
-        versionName = rememberAppVersionName(),
+        versionName = rememberAppVersionName(appVersion),
         snackbarHostState = snackbarHostState,
         onAction = viewModel::onAction,
         onBack = onBack,
@@ -209,15 +226,16 @@ private fun LazyListScope.settingsItems(
             onSelect = { onAction(SettingsAction.SetPageBackground(it)) },
         )
     }
-    item(key = "scroll_mode", contentType = TYPE_CHOICE) {
-        ChoiceGroup(
-            title = stringResource(R.string.settings_scroll_mode),
-            options = ReaderScrollMode.entries,
-            selected = settings.readerScrollMode,
-            labelRes = ::scrollModeLabel,
-            supportingRes = { if (it == ReaderScrollMode.PAGED) R.string.settings_coming_soon else null },
-            onSelect = { onAction(SettingsAction.SetScrollMode(it)) },
-        )
+    if (UpcomingSettings.SHOW_SCROLL_MODE) {
+        item(key = "scroll_mode", contentType = TYPE_CHOICE) {
+            ChoiceGroup(
+                title = stringResource(R.string.settings_scroll_mode),
+                options = ReaderScrollMode.entries,
+                selected = settings.readerScrollMode,
+                labelRes = ::scrollModeLabel,
+                onSelect = { onAction(SettingsAction.SetScrollMode(it)) },
+            )
+        }
     }
     item(key = "keep_screen_on", contentType = TYPE_SWITCH) {
         SwitchRow(
@@ -229,12 +247,14 @@ private fun LazyListScope.settingsItems(
     }
 
     // Highlights
-    sectionHeader(key = "header_highlights", title = R.string.settings_section_highlights)
-    item(key = "highlight_color", contentType = TYPE_COLORS) {
-        HighlightColorPicker(
-            selected = settings.defaultHighlightColor,
-            onSelect = { onAction(SettingsAction.SetHighlightColor(it)) },
-        )
+    if (UpcomingSettings.SHOW_HIGHLIGHT_COLOR) {
+        sectionHeader(key = "header_highlights", title = R.string.settings_section_highlights)
+        item(key = "highlight_color", contentType = TYPE_COLORS) {
+            HighlightColorPicker(
+                selected = settings.defaultHighlightColor,
+                onSelect = { onAction(SettingsAction.SetHighlightColor(it)) },
+            )
+        }
     }
 
     // Library
@@ -550,10 +570,18 @@ private fun NavigationRow(title: String, summary: String, onClick: () -> Unit) {
     }
 }
 
+/**
+ * [provided] when given; otherwise the package's version name, read on [Dispatchers.IO] (a binder
+ * call to the package manager must not run during composition). Empty while it is being read, so
+ * "Unknown" never flashes.
+ */
 @Composable
-private fun rememberAppVersionName(): String? {
-    val context = LocalContext.current
-    return remember(context) { context.appVersionName() }
+private fun rememberAppVersionName(provided: String?): String? {
+    val context = LocalContext.current.applicationContext
+    val version by produceState<String?>(initialValue = provided ?: "", provided, context) {
+        value = provided ?: withContext(Dispatchers.IO) { context.appVersionName() }
+    }
+    return version
 }
 
 @Suppress("DEPRECATION") // getPackageInfo(String, Int) is the only overload available below API 33.

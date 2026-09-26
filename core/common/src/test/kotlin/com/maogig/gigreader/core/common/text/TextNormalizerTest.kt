@@ -17,6 +17,8 @@ class TextNormalizerTest {
         assertEquals("paper.v2", FileNames.titleFromFileName("/storage/x/paper.v2.pdf"))
         assertEquals("Untitled", FileNames.titleFromFileName(".pdf"))
         assertEquals("Untitled", FileNames.titleFromFileName(null))
+        assertEquals("Sem título", FileNames.titleFromFileName("  .pdf", fallback = "Sem título"))
+        assertEquals("Thesis", FileNames.titleFromFileName("Thesis.pdf", fallback = "Sem título"))
     }
 
     @Test

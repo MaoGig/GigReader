@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 internal const val DAY = 24L * 60 * 60 * 1000
 
@@ -73,6 +74,13 @@ internal class FakeLibraryRepository : LibraryRepository {
     val continueReading = MutableStateFlow<List<LibraryItem.DocumentEntry>>(emptyList())
     val favorites = MutableStateFlow<List<LibraryItem.DocumentEntry>>(emptyList())
     val recentNotes = MutableStateFlow<List<LibraryItem.NoteEntry>>(emptyList())
+
+    /** Library-wide lists (every folder); `subscriptionCount` tells which ones a screen observes. */
+    val allDocuments = MutableStateFlow<List<LibraryItem.DocumentEntry>>(emptyList())
+    val allNotes = MutableStateFlow<List<LibraryItem.NoteEntry>>(emptyList())
+    val favoriteNotes = MutableStateFlow<List<LibraryItem.NoteEntry>>(emptyList())
+    val favoriteLimits = mutableListOf<Int>()
+    val openedSinceCalls = mutableListOf<Long>()
     val tree = MutableStateFlow(FolderTree(emptyList()))
     val trash = MutableStateFlow<List<TrashEntry>>(emptyList())
     val documents = HashMap<String, Document>()
@@ -87,7 +95,7 @@ internal class FakeLibraryRepository : LibraryRepository {
     val trashed = mutableListOf<List<ItemRef>>()
     val restored = mutableListOf<List<ItemRef>>()
     val deletedForever = mutableListOf<List<ItemRef>>()
-    val duplicated = mutableListOf<String>()
+    val duplicated = mutableListOf<Pair<String, String>>()
     var emptied = 0
     var purged = 0
     val undone = mutableListOf<String>()
@@ -100,7 +108,7 @@ internal class FakeLibraryRepository : LibraryRepository {
         tree.value = FolderTree(nodes.toList())
     }
 
-    private fun contentsOf(folderId: String?) = contents.getOrPut(folderId) { MutableStateFlow(FolderContents.Empty) }
+    fun contentsOf(folderId: String?) = contents.getOrPut(folderId) { MutableStateFlow(FolderContents.Empty) }
 
     private fun action(label: String) = object : UndoableAction {
         override val label: String = label
@@ -116,9 +124,26 @@ internal class FakeLibraryRepository : LibraryRepository {
 
     override fun observeContinueReading(limit: Int): Flow<List<LibraryItem.DocumentEntry>> = continueReading
 
-    override fun observeFavorites(limit: Int): Flow<List<LibraryItem.DocumentEntry>> = favorites
+    override fun observeFavorites(limit: Int): Flow<List<LibraryItem.DocumentEntry>> {
+        favoriteLimits.add(limit)
+        return favorites
+    }
 
     override fun observeRecentNotes(limit: Int): Flow<List<LibraryItem.NoteEntry>> = recentNotes
+
+    override fun observeAllNotes(): Flow<List<LibraryItem.NoteEntry>> = allNotes
+
+    override fun observeAllDocuments(): Flow<List<LibraryItem.DocumentEntry>> = allDocuments
+
+    override fun observeFavoriteNotes(): Flow<List<LibraryItem.NoteEntry>> = favoriteNotes
+
+    /** Filters [allDocuments] like the real query (opened at or after [sinceMillis], newest first). */
+    override fun observeOpenedSince(sinceMillis: Long): Flow<List<LibraryItem.DocumentEntry>> {
+        openedSinceCalls.add(sinceMillis)
+        return allDocuments.map { documents ->
+            documents.filter { (it.lastOpenedAt ?: Long.MIN_VALUE) >= sinceMillis }.sortedByDescending { it.lastOpenedAt }
+        }
+    }
 
     override fun observeFolderTree(): Flow<FolderTree> = tree
 
@@ -170,12 +195,15 @@ internal class FakeLibraryRepository : LibraryRepository {
         emptied++
     }
 
+    var purgeFailure: Exception? = null
+
     override suspend fun purgeExpiredTrash(maxAgeMillis: Long) {
+        purgeFailure?.let { throw it }
         purged++
     }
 
-    override suspend fun duplicateDocument(documentId: String): String {
-        duplicated.add(documentId)
+    override suspend fun duplicateDocument(documentId: String, copyTitle: String): String {
+        duplicated.add(documentId to copyTitle)
         return "$documentId-copy"
     }
 }

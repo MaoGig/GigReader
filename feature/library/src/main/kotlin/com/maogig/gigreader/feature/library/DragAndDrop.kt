@@ -46,7 +46,9 @@ import kotlin.math.roundToInt
  *   only when the pointer enters/leaves a target) and [pointer] (read exclusively inside
  *   layout/draw lambdas by the preview, so moving the finger never recomposes the list).
  * - Drop target coordinates live in a plain map (no snapshot writes during scroll) and are
- *   hit-tested lazily with [LayoutCoordinates.localBoundingBoxOf] against the screen root.
+ *   hit-tested lazily with [LayoutCoordinates.localBoundingBoxOf] against the screen root. Entries
+ *   are keyed by the registering node (its owner), so one folder can be a target in several places
+ *   at once (grid cell, breadcrumb, folder panel).
  */
 @Stable
 internal class DragDropState(
@@ -67,17 +69,24 @@ internal class DragDropState(
     /** Coordinates of the screen root; every position here is relative to it. */
     var rootCoordinates: LayoutCoordinates? = null
 
-    private val targets = HashMap<DropTarget, LayoutCoordinates>()
+    private val targets = HashMap<Any, Registration>()
     private var armed = false
     private var start = Offset.Zero
     private var slop = 0f
 
-    fun register(target: DropTarget, coordinates: LayoutCoordinates) {
-        if (targets[target] !== coordinates) targets[target] = coordinates
+    /** [owner] identifies the registering node (a remembered object); it may change its target. */
+    fun register(owner: Any, target: DropTarget, coordinates: LayoutCoordinates) {
+        val current = targets[owner]
+        if (current == null) {
+            targets[owner] = Registration(target, coordinates)
+        } else {
+            current.target = target
+            current.coordinates = coordinates
+        }
     }
 
-    fun unregister(target: DropTarget) {
-        targets.remove(target)
+    fun unregister(owner: Any) {
+        targets.remove(owner)
     }
 
     /**
@@ -123,18 +132,20 @@ internal class DragDropState(
     }
 
     private fun hitTest(root: LayoutCoordinates, position: Offset): DropTarget? {
-        // The favorites zone floats above the grid, so it wins over folders underneath it.
-        targets[DropTarget.Favorites]?.let { zone ->
-            if (zone.isAttached && root.localBoundingBoxOf(zone).contains(position) && canDrop(DropTarget.Favorites)) {
-                return DropTarget.Favorites
-            }
+        var hit: DropTarget? = null
+        for (registration in targets.values) {
+            val target = registration.target
+            val coordinates = registration.coordinates
+            if (!coordinates.isAttached || !root.localBoundingBoxOf(coordinates).contains(position)) continue
+            if (!canDrop(target)) continue
+            // The favorites zone floats above the grid and the panel, so it wins over folders underneath.
+            if (target == DropTarget.Favorites) return target
+            if (hit == null) hit = target
         }
-        for ((target, coordinates) in targets) {
-            if (target == DropTarget.Favorites || !coordinates.isAttached) continue
-            if (root.localBoundingBoxOf(coordinates).contains(position) && canDrop(target)) return target
-        }
-        return null
+        return hit
     }
+
+    private class Registration(var target: DropTarget, var coordinates: LayoutCoordinates)
 }
 
 /** Non-snapshot holder for an item's coordinates (written on every placement, never observed). */
@@ -202,9 +213,12 @@ internal fun Modifier.libraryItemInteraction(
         )
     }
 
-/** Registers the node as a drop target while it is composed and placed. */
-internal fun Modifier.dropTarget(target: DropTarget, dragDrop: DragDropState): Modifier =
-    onGloballyPositioned { dragDrop.register(target, it) }
+/**
+ * Registers the node as a drop target while it is composed and placed. [owner] is a remembered
+ * object of the caller, which also calls [DragDropState.unregister] with it when disposed.
+ */
+internal fun Modifier.dropTarget(owner: Any, target: DropTarget, dragDrop: DragDropState): Modifier =
+    onGloballyPositioned { dragDrop.register(owner, target, it) }
 
 /**
  * Translucent card following the pointer. Its position is read in the offset lambda (layout

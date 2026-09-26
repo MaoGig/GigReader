@@ -5,11 +5,11 @@ import com.maogig.gigreader.core.common.Clock
 import com.maogig.gigreader.core.common.FolderTree
 import com.maogig.gigreader.core.common.IdGenerator
 import com.maogig.gigreader.core.common.TreeNode
-import com.maogig.gigreader.core.common.escapeLike
 import com.maogig.gigreader.core.common.io.DocumentFileStore
 import com.maogig.gigreader.core.common.undo.UndoableAction
 import com.maogig.gigreader.core.database.GigReaderDatabase
 import com.maogig.gigreader.core.database.SOURCE_MANAGED
+import com.maogig.gigreader.core.database.SearchKeys
 import com.maogig.gigreader.core.database.dao.IdFlag
 import com.maogig.gigreader.core.database.dao.IdParent
 import com.maogig.gigreader.core.database.dao.TrashRow
@@ -67,6 +67,20 @@ class LocalLibraryRepository(
     override fun observeRecentNotes(limit: Int): Flow<List<LibraryItem.NoteEntry>> =
         noteDao.observeRecent(limit).map { rows -> rows.map { it.toItem() } }.distinctUntilChanged()
 
+    // Library-wide lists can hold thousands of rows: mapped off the main thread like observeFolder.
+    override fun observeAllNotes(): Flow<List<LibraryItem.NoteEntry>> =
+        noteDao.observeAll().map { rows -> rows.map { it.toItem() } }.distinctUntilChanged().flowOn(compute)
+
+    override fun observeAllDocuments(): Flow<List<LibraryItem.DocumentEntry>> =
+        documentDao.observeAll().map { rows -> rows.map { it.toItem() } }.distinctUntilChanged().flowOn(compute)
+
+    override fun observeFavoriteNotes(): Flow<List<LibraryItem.NoteEntry>> =
+        noteDao.observeFavorites().map { rows -> rows.map { it.toItem() } }.distinctUntilChanged().flowOn(compute)
+
+    override fun observeOpenedSince(sinceMillis: Long): Flow<List<LibraryItem.DocumentEntry>> =
+        documentDao.observeOpenedSince(sinceMillis).map { rows -> rows.map { it.toItem() } }
+            .distinctUntilChanged().flowOn(compute)
+
     override fun observeFolderTree(): Flow<FolderTree> =
         folderDao.observeTree()
             .distinctUntilChanged()
@@ -88,7 +102,8 @@ class LocalLibraryRepository(
         documentDao.getById(id)?.takeIf { it.deletedAt == null }?.toModel()
 
     override suspend fun search(query: String, limit: Int): LibrarySearchResults {
-        val q = escapeLike(query.trim())
+        // Matched against the normalized search_* columns: case- and accent-insensitive for pt-BR too.
+        val q = SearchKeys.likeQuery(query)
         if (q.isEmpty()) return LibrarySearchResults(emptyList(), emptyList(), emptyList())
         return LibrarySearchResults(
             folders = folderDao.searchByName(q, limit).map { it.toItem() },
@@ -98,16 +113,26 @@ class LocalLibraryRepository(
     }
 
     override suspend fun createFolder(parentId: String?, name: String): String {
-        val now = clock.now()
         val id = ids.newId()
-        folderDao.insert(
-            FolderEntity(
-                id = id, parentId = parentId, name = name.trim().ifEmpty { "New folder" },
-                createdAt = now, modifiedAt = now, version = 1, trashedAt = null, trashRootId = null, deletedAt = null,
-            ),
-        )
+        val folderName = name.trim().ifEmpty { "New folder" }
+        db.withTransaction {
+            val now = clock.now()
+            folderDao.insert(
+                FolderEntity(
+                    id = id, parentId = liveFolderOrRoot(parentId), name = folderName, searchName = SearchKeys.of(folderName),
+                    createdAt = now, modifiedAt = now, version = 1, trashedAt = null, trashRootId = null, deletedAt = null,
+                ),
+            )
+        }
         return id
     }
+
+    /**
+     * [folderId] if it is a live folder, otherwise the root (null). A live item under a trashed or
+     * deleted folder would show up nowhere, so every write that places an item checks its target with
+     * this inside its transaction.
+     */
+    private suspend fun liveFolderOrRoot(folderId: String?): String? = folderId?.takeIf { folderDao.isLive(it) }
 
     override suspend fun rename(item: ItemRef, newName: String): UndoableAction? {
         val name = newName.trim()
@@ -129,11 +154,15 @@ class LocalLibraryRepository(
     private suspend fun applyRename(item: ItemRef, name: String) {
         val now = clock.now()
         when (item.kind) {
-            ItemKind.FOLDER -> folderDao.rename(item.id, name, now)
-            ItemKind.DOCUMENT -> documentDao.rename(item.id, name, now)
-            // Title-only update: a read-modify-write of the body here could overwrite text the note
-            // editor autosaved in between.
-            ItemKind.NOTE -> noteDao.rename(item.id, name, now)
+            ItemKind.FOLDER -> folderDao.rename(item.id, name, SearchKeys.of(name), now)
+            ItemKind.DOCUMENT -> documentDao.rename(item.id, name, SearchKeys.of(name), now)
+            // Title-only update: rewriting the body here could overwrite text the note editor
+            // autosaved in between. The body is only read to index it, inside the write transaction,
+            // so no autosave can land between the read and the write.
+            ItemKind.NOTE -> db.withTransaction {
+                val body = noteDao.getById(item.id)?.body ?: return@withTransaction
+                noteDao.rename(item.id, name, SearchKeys.note(name, body), now)
+            }
         }
     }
 
@@ -142,29 +171,30 @@ class LocalLibraryRepository(
         val documentIds = items.filter { it.kind == ItemKind.DOCUMENT }.map { it.id }
         val noteIds = items.filter { it.kind == ItemKind.NOTE }.map { it.id }
         if (items.isEmpty()) return MoveResult.NothingToMove
-        // The cycle check runs inside the write transaction: two concurrent moves (A into B and B into
-        // A) must not both pass a check made before either of them wrote.
-        val origins = db.withTransaction {
-            if (!canMoveFolders(folderIds, targetFolderId)) return@withTransaction null
-            val o = Origins(
+        // The cycle and target checks run inside the write transaction: two concurrent moves (A into B
+        // and B into A) must not both pass a check made before either of them wrote, and the target
+        // must not be trashed between the check and the move.
+        return db.withTransaction<MoveResult> {
+            if (!canMoveFolders(folderIds, targetFolderId)) return@withTransaction MoveResult.WouldCreateCycle
+            val origins = Origins(
                 folders = folderIds.chunked(CHUNK).flatMap { folderDao.parents(it) },
                 documents = documentIds.chunked(CHUNK).flatMap { documentDao.parents(it) },
                 notes = noteIds.chunked(CHUNK).flatMap { noteDao.parents(it) },
             )
-            moveAll(folderIds, documentIds, noteIds, targetFolderId)
-            o
-        } ?: return MoveResult.WouldCreateCycle
-        val count = items.size
-        return MoveResult.Moved(
-            object : UndoableAction {
-                override val label = if (count == 1) "Moved 1 item" else "Moved $count items"
-                override suspend fun undo() = db.withTransaction { origins.restore() }
-                override suspend fun redo() = db.withTransaction {
-                    // Other screens may have reorganized folders since; never create a cycle on redo.
-                    if (canMoveFolders(folderIds, targetFolderId)) moveAll(folderIds, documentIds, noteIds, targetFolderId)
-                }
-            },
-        )
+            // A target trashed meanwhile (e.g. from another window): the items stay where they are.
+            if (!moveAll(folderIds, documentIds, noteIds, targetFolderId)) return@withTransaction MoveResult.NothingToMove
+            val count = items.size
+            MoveResult.Moved(
+                object : UndoableAction {
+                    override val label = if (count == 1) "Moved 1 item" else "Moved $count items"
+                    override suspend fun undo() = db.withTransaction { origins.restore() }
+                    override suspend fun redo() = db.withTransaction {
+                        // Other screens may have reorganized folders since; never create a cycle on redo.
+                        if (canMoveFolders(folderIds, targetFolderId)) moveAll(folderIds, documentIds, noteIds, targetFolderId)
+                    }
+                },
+            )
+        }
     }
 
     /** Whether [folderIds] can move into [target] without creating a cycle (reads the current tree). */
@@ -172,26 +202,36 @@ class LocalLibraryRepository(
         folderIds.isEmpty() ||
             FolderTree(folderDao.tree().map { TreeNode(it.id, it.parentId, it.name) }).canMoveInto(folderIds, target)
 
-    private suspend fun moveAll(folderIds: List<String>, documentIds: List<String>, noteIds: List<String>, target: String?) {
+    /**
+     * Moves the items into [target]. Returns false, moving nothing, if [target] is no longer a live
+     * folder: the items stay where they are, still visible. Call inside a transaction.
+     */
+    private suspend fun moveAll(folderIds: List<String>, documentIds: List<String>, noteIds: List<String>, target: String?): Boolean {
+        if (target != null && !folderDao.isLive(target)) return false
         val now = clock.now()
         folderIds.chunked(CHUNK).forEach { folderDao.move(it, target, now) }
         documentIds.chunked(CHUNK).forEach { documentDao.move(it, target, now) }
         noteIds.chunked(CHUNK).forEach { noteDao.move(it, target, now) }
+        return true
     }
 
     private inner class Origins(val folders: List<IdParent>, val documents: List<IdParent>, val notes: List<IdParent>) {
+        /** Puts items back into their old folders; those trashed or deleted since mean the root. */
         suspend fun restore() {
             val now = clock.now()
             folders.groupBy { it.parentId }.forEach { (parent, list) ->
                 val ids = list.map { it.id }
+                val target = liveFolderOrRoot(parent)
                 // The old parent may have been moved under one of these folders meanwhile.
-                if (canMoveFolders(ids, parent)) ids.chunked(CHUNK).forEach { folderDao.move(it, parent, now) }
+                if (canMoveFolders(ids, target)) ids.chunked(CHUNK).forEach { folderDao.move(it, target, now) }
             }
             documents.groupBy { it.parentId }.forEach { (parent, list) ->
-                list.map { it.id }.chunked(CHUNK).forEach { documentDao.move(it, parent, now) }
+                val target = liveFolderOrRoot(parent)
+                list.map { it.id }.chunked(CHUNK).forEach { documentDao.move(it, target, now) }
             }
             notes.groupBy { it.parentId }.forEach { (parent, list) ->
-                list.map { it.id }.chunked(CHUNK).forEach { noteDao.move(it, parent, now) }
+                val target = liveFolderOrRoot(parent)
+                list.map { it.id }.chunked(CHUNK).forEach { noteDao.move(it, target, now) }
             }
         }
     }
@@ -280,9 +320,19 @@ class LocalLibraryRepository(
     }
 
     override suspend fun deleteForever(items: List<ItemRef>) {
+        if (items.isEmpty()) return
+        // The user asked to free this space. Once started, cancelling the caller (leaving the Trash
+        // screen) must not skip the file deletion: a cancelled coroutine would even lose the list of
+        // files of an already committed transaction, because withTransaction rethrows the
+        // cancellation when it resumes. So the whole operation is non-cancellable.
+        withContext(NonCancellable) { deleteForeverNow(items) }
+    }
+
+    private suspend fun deleteForeverNow(items: List<ItemRef>) {
         val filesToDelete = db.withTransaction {
             val now = clock.now()
             val paths = ArrayList<Pair<String, String>>() // documentId to relative path
+            val deletedFolders = ArrayList<String>()
             for (root in items) {
                 val folderIds = folderDao.idsTrashedWith(root.id)
                 val documentIds = documentDao.idsTrashedWith(root.id)
@@ -300,16 +350,33 @@ class LocalLibraryRepository(
                 }
                 noteIds.chunked(CHUNK).forEach { noteDao.tombstone(it, now) }
                 folderIds.chunked(CHUNK).forEach { folderDao.tombstone(it, now) }
+                deletedFolders.addAll(folderIds)
             }
+            reattachLiveChildren(deletedFolders, now)
             paths
         }
         // Files go only after the database commit: a crash in between can leave an orphan file
-        // (see DocumentFileStore.cleanupOrphans), never a row pointing at a missing file.
-        withContext(io) {
+        // (see sweepLeftovers), never a row pointing at a missing file.
+        withContext(NonCancellable + io) {
             for ((documentId, path) in filesToDelete) {
                 runCatching { files.delete(path) }
-                covers.delete(documentId)
+                runCatching { covers.delete(documentId) }
             }
+            // Also frees what earlier crashes or cancelled deletions left behind.
+            sweepLeftovers(db, files, covers, clock.now())
+        }
+    }
+
+    /**
+     * Moves live items whose parent is one of [folderIds] (just turned into tombstones) to the root.
+     * They were not trashed with that folder (e.g. written into it after it was trashed), so without
+     * this they would stay live forever under a folder that no listing shows.
+     */
+    private suspend fun reattachLiveChildren(folderIds: List<String>, now: Long) {
+        folderIds.chunked(CHUNK).forEach { chunk ->
+            folderDao.liveIdsWithParents(chunk).chunked(CHUNK).forEach { folderDao.move(it, null, now) }
+            documentDao.liveIdsInFolders(chunk).chunked(CHUNK).forEach { documentDao.move(it, null, now) }
+            noteDao.liveIdsInFolders(chunk).chunked(CHUNK).forEach { noteDao.move(it, null, now) }
         }
     }
 
@@ -323,7 +390,7 @@ class LocalLibraryRepository(
         if (expired.isNotEmpty()) deleteForever(expired)
     }
 
-    override suspend fun duplicateDocument(documentId: String): String {
+    override suspend fun duplicateDocument(documentId: String, copyTitle: String): String {
         // Tombstones have an empty source path (fileFor("") would throw), so treat them as missing.
         val source = documentDao.getById(documentId)?.takeIf { it.deletedAt == null } ?: error("document not found")
         require(source.sourceKind == SOURCE_MANAGED) { "only library documents can be duplicated" }
@@ -342,7 +409,7 @@ class LocalLibraryRepository(
         }
         val now = clock.now()
         try {
-            insertDuplicate(source, documentId, newId, relativePath, now)
+            insertDuplicate(source, documentId, newId, relativePath, copyTitle.trim().ifEmpty { source.title }, now)
         } catch (e: Exception) {
             // The copy is already in the library directory; without its row it would be an orphan.
             withContext(NonCancellable + io) { runCatching { files.delete(relativePath) } }
@@ -352,12 +419,22 @@ class LocalLibraryRepository(
         return newId
     }
 
-    private suspend fun insertDuplicate(source: DocumentEntity, documentId: String, newId: String, relativePath: String, now: Long) {
+    private suspend fun insertDuplicate(
+        source: DocumentEntity,
+        documentId: String,
+        newId: String,
+        relativePath: String,
+        title: String,
+        now: Long,
+    ) {
         db.withTransaction {
             documentDao.insert(
                 source.copy(
                     id = newId,
-                    title = "${source.title} (copy)",
+                    // The source may have been trashed with its folder meanwhile: never go live under it.
+                    folderId = liveFolderOrRoot(source.folderId),
+                    title = title,
+                    searchTitle = SearchKeys.of(title),
                     sourcePath = relativePath,
                     createdAt = now,
                     modifiedAt = now,

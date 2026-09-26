@@ -3,6 +3,9 @@
     <string name="notes_back">Voltar</string>
     <string name="notes_title_placeholder">Título</string>
     <string name="notes_body_placeholder">Comece a escrever…</string>
+    <!-- Rótulos de acessibilidade dos campos do editor (lidos mesmo quando têm texto). -->
+    <string name="notes_title_label">Título</string>
+    <string name="notes_body_label">Nota</string>
     <string name="notes_status_saving">Salvando…</string>
     <string name="notes_status_saved">Salvo</string>
     <string name="notes_status_failed">Não foi possível salvar</string>

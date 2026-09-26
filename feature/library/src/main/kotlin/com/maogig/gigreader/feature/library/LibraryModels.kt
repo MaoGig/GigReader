@@ -94,6 +94,10 @@ internal fun itemKey(ref: ItemRef): String = when (ref.kind) {
 @Immutable
 internal data class Crumb(val folderId: String?, val name: String?)
 
+/** One folder of the folder panel (expanded screens); `depth` 0 = directly under the root. */
+@Immutable
+internal data class FolderPanelRow(val id: String, val name: String, val depth: Int)
+
 @Immutable
 internal data class MoveTarget(
     /** `null` = library root. */
@@ -212,6 +216,9 @@ internal sealed interface LibraryMessage {
     data class ImportFailedMany(val count: Int) : LibraryMessage
 
     data class Restored(val title: String) : LibraryMessage
+
+    /** A trashed document cannot be restored alone: it went to the trash with its folder. */
+    data object RestoreWithFolder : LibraryMessage
 
     data object DeletedForever : LibraryMessage
 
