@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="notes_back">Back</string>
+    <string name="notes_title_placeholder">Title</string>
+    <string name="notes_body_placeholder">Start writing…</string>
+    <!-- Accessibility labels of the editor fields (read even when they contain text). -->
+    <string name="notes_title_label">Title</string>
+    <string name="notes_body_label">Note</string>
+    <string name="notes_status_saving">Saving…</string>
+    <string name="notes_status_saved">Saved</string>
+    <string name="notes_status_failed">Couldn\'t save</string>
+    <string name="notes_missing_title">Note not found</string>
+    <string name="notes_missing_message">This note may have been deleted.</string>
+</resources>

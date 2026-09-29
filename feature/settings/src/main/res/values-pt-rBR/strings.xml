@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_title">Configurações</string>
+    <string name="settings_back">Voltar</string>
+    <string name="settings_save_failed">Não foi possível salvar a configuração</string>
+
+    <string name="settings_section_appearance">Aparência</string>
+    <string name="settings_theme">Tema</string>
+    <string name="settings_theme_system">Padrão do sistema</string>
+    <string name="settings_theme_light">Claro</string>
+    <string name="settings_theme_dark">Escuro</string>
+    <string name="settings_theme_amoled">Escuro AMOLED</string>
+    <string name="settings_theme_amoled_summary">Preto verdadeiro. Economiza energia em telas OLED.</string>
+    <string name="settings_animations">Animações</string>
+    <string name="settings_animations_summary">Transições curtas quando algo muda</string>
+
+    <string name="settings_section_reader">Leitor</string>
+    <string name="settings_page_spacing">Espaçamento entre páginas</string>
+    <string name="settings_page_spacing_value">%1$d dp</string>
+    <string name="settings_page_background">Fundo da página</string>
+    <string name="settings_background_white">Branco</string>
+    <string name="settings_background_sepia">Sépia</string>
+    <string name="settings_background_dark">Escuro</string>
+    <string name="settings_scroll_mode">Modo de rolagem</string>
+    <string name="settings_scroll_continuous">Contínua</string>
+    <string name="settings_scroll_paged">Página por página</string>
+    <string name="settings_keep_screen_on">Manter tela ligada</string>
+    <string name="settings_keep_screen_on_summary">Somente com um documento aberto. Gasta mais bateria.</string>
+
+    <string name="settings_section_highlights">Destaques</string>
+    <string name="settings_default_highlight_color">Cor padrão do destaque</string>
+    <string name="settings_color_yellow">Amarelo</string>
+    <string name="settings_color_green">Verde</string>
+    <string name="settings_color_blue">Azul</string>
+    <string name="settings_color_pink">Rosa</string>
+    <string name="settings_color_orange">Laranja</string>
+    <string name="settings_color_purple">Roxo</string>
+
+    <string name="settings_section_library">Biblioteca</string>
+    <string name="settings_library_layout">Exibição</string>
+    <string name="settings_layout_grid">Grade</string>
+    <string name="settings_layout_list">Lista</string>
+    <string name="settings_layout_compact">Lista compacta</string>
+    <string name="settings_sort_by">Ordenar por</string>
+    <string name="settings_sort_name">Nome</string>
+    <string name="settings_sort_created">Data de adição</string>
+    <string name="settings_sort_last_opened">Última abertura</string>
+    <string name="settings_sort_modified">Última modificação</string>
+    <string name="settings_sort_size">Tamanho</string>
+    <string name="settings_sort_type">Tipo</string>
+    <string name="settings_sort_direction">Ordem</string>
+    <string name="settings_sort_ascending">Crescente</string>
+    <string name="settings_sort_descending">Decrescente</string>
+
+    <string name="settings_section_about">Sobre</string>
+    <string name="settings_version">Versão</string>
+    <string name="settings_version_unknown">Desconhecida</string>
+    <string name="settings_diagnostics">Diagnóstico do desenvolvedor</string>
+    <string name="settings_diagnostics_summary">Memória, caches e armazenamento</string>
+</resources>

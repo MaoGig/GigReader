@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_note"
+        android:shortcutId="new_note"
+        android:shortcutLongLabel="@string/app_shortcut_new_note_long"
+        android:shortcutShortLabel="@string/app_shortcut_new_note">
+        <intent
+            android:action="com.maogig.gigreader.action.NEW_NOTE"
+            android:targetClass="com.maogig.gigreader.MainActivity"
+            android:targetPackage="com.maogig.gigreader" />
+    </shortcut>
+</shortcuts>

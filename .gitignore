@@ -1,0 +1,23 @@
+# Gradle / Android build outputs
+.gradle/
+build/
+**/build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Kotlin
+.kotlin/
+
+# The wrapper jar is regenerated locally with `gradle wrapper` (CI provisions Gradle itself).
+gradle/wrapper/gradle-wrapper.jar

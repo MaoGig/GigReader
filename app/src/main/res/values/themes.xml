@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Only the window background matters before Compose draws its first frame (no white flash).
+         Everything else is styled in Compose (core:ui GigReaderTheme). -->
+    <style name="Theme.GigReader" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+    </style>
+</resources>

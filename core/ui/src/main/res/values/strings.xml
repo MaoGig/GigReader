@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="core_ui_cancel">Cancel</string>
+    <string name="core_ui_today">Today</string>
+    <string name="core_ui_yesterday">Yesterday</string>
+    <plurals name="core_ui_days_ago">
+        <item quantity="one">%d day ago</item>
+        <item quantity="other">%d days ago</item>
+    </plurals>
+    <string name="core_ui_percent_read">%d%% read</string>
+</resources>
