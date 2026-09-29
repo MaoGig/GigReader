@@ -30,7 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.dp
@@ -75,7 +75,7 @@ fun GigReaderApp(
         SystemBarsFollowTheme(isDark = LocalUiPreferences.current.isDark, amoled = loaded.themeMode == ThemeMode.AMOLED)
         val navigator = rememberNavigator()
         val activity = LocalActivity.current
-        val context = LocalContext.current
+        val resources = LocalResources.current
         val snackbarHostState = remember { SnackbarHostState() }
         val scope = rememberCoroutineScope()
         val importer = container.importManager
@@ -114,7 +114,7 @@ fun GigReaderApp(
                     if (id != null) {
                         navigator.navigate(Destination.NoteEditor(id))
                     } else {
-                        val text = context.getString(R.string.app_note_create_failed)
+                        val text = resources.getString(R.string.app_note_create_failed)
                         scope.launch { snackbarHostState.showSnackbar(text) }
                     }
                 }
