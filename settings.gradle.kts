@@ -15,6 +15,20 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        // MuPDF (AGPL-3.0) is published by Artifex on its own repository, not on Maven Central. The
+        // exclusive filter means this host is asked for com.artifex.mupdf and nothing else, and that
+        // group is never looked up anywhere else.
+        exclusiveContent {
+            forRepository {
+                maven {
+                    name = "ArtifexMuPdf"
+                    url = uri("https://maven.ghostscript.com")
+                }
+            }
+            filter {
+                includeGroup("com.artifex.mupdf")
+            }
+        }
         google()
         mavenCentral()
     }

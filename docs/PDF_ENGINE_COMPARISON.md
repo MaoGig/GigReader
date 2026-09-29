@@ -121,40 +121,76 @@ Leitura da tabela:
 
 ## 4. Decisão
 
-**Engine principal: PDFium com camada JNI própria** (binário `bblanchon/pdfium-binaries` pinado,
-SHA-256 verificado, baixado por task Gradle; atualização mensal e imediata em CVE).
-**Fallback: PdfRenderer do framework** (zero bytes, segurança via Google), usado se a biblioteca
-nativa não carregar e como engine da Fase 1.
+> **Decisão final (dono do produto, 2026-09-29): engine principal = MuPDF 1.28.5**
+> (`com.artifex.mupdf:fitz`, AGPL-3.0, repositório `https://maven.ghostscript.com`).
+> **Fallback: PdfRenderer do framework**, mantido (zero bytes, segurança via Google) e usado
+> automaticamente se a biblioteca nativa do MuPDF não carregar.
 
-Ambas atrás de `PdfEngine` (`core:pdf`), com `EngineCapabilities` para a UI ocultar o que não existe.
+A análise técnica acima (§3) já apontava o MuPDF como a melhor engine; a única objeção era a licença,
+e o dono do produto aceitou a consequência (§5). A opção anterior (PDFium + JNI próprio) fica
+registrada como alternativa caso a decisão de licença mude: a troca continua localizada em um backend
+de `PdfEngine`.
+
+### Consequência da AGPL-3.0
+
+- **Distribuir o app com o MuPDF exige liberar o código-fonte do app inteiro sob AGPL-3.0** (a quem
+  receber o APK, incluindo lojas) **ou comprar uma licença comercial da Artifex** (preço sob consulta).
+- Enquanto for AGPL: nada de componentes proprietários incompatíveis (Play Services, Firebase/
+  Crashlytics, AdMob, provavelmente Play Billing e ML Kit). O app não usa nenhum deles hoje.
+- O app mostra o aviso na tela **Configurações → Licenças de código aberto** (MuPDF, AGPL-3.0,
+  Artifex, links para mupdf.com e o texto da licença). O arquivo `LICENSE` do repositório é decisão
+  do dono e **não** foi adicionado; o README traz uma nota "Licença".
+
+### Como ficou (Fase 2, backend implementado)
+
+- `core:pdf/mupdf`: `MuPdfEngine` (`id = "mupdf"`) + `MuPdfDocument`. Capacidades: busca, extração
+  de texto, sumário, links, tamanhos de página baratos e **senha em todos os API levels**; seleção de
+  texto (Fase 3) e escrita de anotações (Fase 5) ainda desligadas.
+- Abertura: `File` por caminho (`Document.openDocument(path)`) quando termina em `.pdf`; caso
+  contrário (arquivos `.part` da importação) e para `ParcelFileDescriptor`, por `SeekableInputStream`
+  sobre o `FileChannel` do descritor com o formato forçado (`application/pdf`). O MuPDF não tem API de
+  fd e reabrir `/proc/self/fd/N` falha para arquivos de provedores; o stream funciona sempre e o
+  descritor é fechado pela engine.
+- Threads: MuPDF não é thread-safe por documento, mas documentos são independentes (o store global
+  tem lock). Cada documento tem sua **própria fila serial** (`Dispatchers.IO.limitedParallelism(1)`);
+  todo `Page`/`StructuredText`/`Device`/`Cookie`/`Link` é destruído em `finally`.
+- Render: `Page.run` com `AndroidDrawDevice` direto no bitmap do pool (patch = tile), fundo branco,
+  anotações e widgets incluídos.
+- Tamanhos: lidos da árvore de páginas (`findPage` + MediaBox/CropBox/Rotate herdáveis + UserUnit),
+  sem carregar a página (`cheapPageSizes = true`).
+- Busca: `StructuredText` percorrido caractere a caractere, texto normalizado (NFKD, sem marcas,
+  minúsculas, espaços colapsados; ligaduras casam com suas letras; quebra de linha vale espaço) e
+  retângulos por linha em coordenadas normalizadas. Lógica pura em `PageTextIndex` (testada na JVM).
+- Memória: `MuPdfEngine.trimMemory(level)` reduz/esvazia o store do MuPDF (`Context.shrinkStore`/
+  `emptyStore`) em `onTrimMemory`; nada acontece se o MuPDF nunca foi usado.
+- Seleção da engine: `FallbackPdfEngine` tenta o MuPDF; se a lib nativa falhar
+  (`UnsatisfiedLinkError`/`ExceptionInInitializerError`) passa **uma vez** ao framework e lembra. `id`
+  reflete a engine ativa (aparece no diagnóstico). Documento corrompido **não** é repetido no
+  framework: o erro é mostrado como está.
+- Build: `maven.ghostscript.com` só é consultado para o grupo `com.artifex.mupdf`
+  (`exclusiveContent`). O AAR não traz regras de consumidor; `core/pdf/consumer-rules.pro` mantém
+  `com.artifex.mupdf.fitz.**` (o JNI acessa campos e construtores pelo nome).
+- Custo medido em terceiros: ~5,6 MB comprimidos por ABI (mais `libarchive.so`); considerar
+  `abiFilters`/App Bundle na distribuição.
+
+Ambas as engines ficam atrás de `PdfEngine` (`core:pdf`), com `EngineCapabilities` para a UI ocultar
+o que não existe e `PdfEngine.supportsPasswords` para o diálogo de senha.
 
 Por que não as outras:
 
 | Engine | Motivo da rejeição |
 |---|---|
-| Framework (como principal) | Sem TOC, sem caixas por caractere, texto só no API 35/ext. 13, anotação só 36.1, sem cancelamento |
+| Framework (como principal) | Sem TOC, sem caixas por caractere, texto só no API 35/ext. 13, anotação só 36.1, sem cancelamento; **mantido como fallback** |
 | androidx.pdf | Mesmas lacunas + IPC por tile + beta/experimental; poderia virar backend secundário |
+| PDFium + JNI próprio | Segunda colocada (99 vs 102): sem obrigação de licença, mas exige JNI/C++ e atualizações de segurança por nossa conta; reavaliar se a AGPL deixar de ser aceitável |
 | pdfiumandroid | Sem anotações; binário PDFium antigo de procedência desconhecida |
-| MuPDF | AGPL-3.0 (ou licença paga) — ver §5 |
 | PdfBox / pdf.js | Performance e memória inaceitáveis para 1 GB / PDFs escaneados |
 | Comerciais | Custo recorrente, 22–63 MB por ABI, lock-in |
 
-### Implementação prevista (Fase 2)
+## 5. Modelo de licença (decidido)
 
-- `core:pdf/pdfium`: CMake + JNI C++ mínimo; `FPDF_InitLibraryWithConfig` uma vez; documento aberto
-  com `FPDF_LoadCustomDocument` sobre `pread` do fd; cache LRU de páginas e text pages; render em
-  bitmaps do pool via `AndroidBitmap_lockPixels` (sem cópia) com `FPDF_REVERSE_BYTE_ORDER`;
-  render progressivo com `IFSDK_PAUSE` consultando um flag de cancelamento.
-- Fila serial única (`limitedParallelism(1)`) com prioridade (tiles visíveis > prefetch >
-  medição > indexação).
-- Hardening posterior: engine em serviço `android:isolatedProcess` para que um PDF malicioso não
-  derrube a UI nem alcance dados do app.
-- Notices de terceiros (FreeType, libjpeg-turbo, OpenJPEG, lcms2, libpng, zlib, ICU, abseil…) na
-  tela "Licenças".
-
-## 5. Decisão pendente do produto: modelo de licença
-
-Se o GigReader for **open source sob AGPL-3.0** (sem SDKs proprietários) ou se houver orçamento para
-a **licença comercial da Artifex**, o MuPDF passa a ser a melhor escolha técnica (seleção/anotações
-mais completas com menos código nativo nosso). A troca é localizada: só um novo backend de
-`PdfEngine`. Até essa decisão, seguimos com PDFium (sem custo, sem obrigação de licença).
+O produto adota o **MuPDF sob AGPL-3.0**. Para distribuir o app (APK em loja ou fora dela) é preciso
+**(a)** publicar o código-fonte completo do app sob AGPL-3.0, ou **(b)** adquirir a licença comercial
+da Artifex antes da distribuição. Enquanto o app não for distribuído, nada é exigido. Se um dia for
+preferível um app fechado sem custo de licença, o caminho é PDFium + JNI (tabela acima); a troca é só
+um novo backend de `PdfEngine`.

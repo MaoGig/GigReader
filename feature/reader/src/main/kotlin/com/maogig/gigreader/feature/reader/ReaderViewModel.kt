@@ -3,12 +3,12 @@ package com.maogig.gigreader.feature.reader
 import android.app.Application
 import android.database.sqlite.SQLiteException
 import android.net.Uri
-import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.maogig.gigreader.core.common.cache.WeightedLruCache
 import com.maogig.gigreader.core.common.coroutines.CoalescingSaver
 import com.maogig.gigreader.core.common.io.DocumentFileStore
 import com.maogig.gigreader.core.common.io.PageSizes
@@ -29,6 +29,11 @@ import com.maogig.gigreader.core.pdf.engine.PdfEngine
 import com.maogig.gigreader.core.pdf.engine.PdfOpenException
 import com.maogig.gigreader.core.pdf.render.RenderBudgets
 import com.maogig.gigreader.core.pdf.render.RenderPipeline
+import com.maogig.gigreader.feature.reader.nav.LinkHits
+import com.maogig.gigreader.feature.reader.nav.LinkRegion
+import com.maogig.gigreader.feature.reader.nav.ReaderNavigation
+import com.maogig.gigreader.feature.reader.nav.ThumbnailLoader
+import com.maogig.gigreader.feature.reader.nav.TocModel
 import com.maogig.gigreader.feature.reader.viewport.ViewportPosition
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -54,6 +59,7 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /** What the reader shows. */
 sealed interface ReaderSource {
@@ -76,7 +82,7 @@ enum class ReaderError {
     NOT_FOUND,
     FILE_MISSING,
 
-    /** Encrypted PDF on a device whose engine cannot take a password (below API 35 today). */
+    /** Encrypted PDF while the active engine cannot take a password (only the framework fallback below API 35). */
     PASSWORD_PROTECTED,
     CORRUPTED,
     UNREADABLE,
@@ -110,6 +116,19 @@ sealed interface ReaderUiState {
     data class Error(val error: ReaderError) : ReaderUiState
 }
 
+/** Which navigation panel is open next to / over the page. */
+enum class ReaderPanel { NONE, CONTENTS, PAGES }
+
+/** The table of contents, loaded lazily the first time the panel is opened. */
+sealed interface OutlineState {
+    data object NotLoaded : OutlineState
+
+    data object Loading : OutlineState
+
+    /** [model] is empty when the document has no outline. */
+    data class Loaded(val model: TocModel) : OutlineState
+}
+
 sealed interface ReaderEvent {
     data object AddedToLibrary : ReaderEvent
 }
@@ -134,6 +153,27 @@ class ReaderViewModel(
     val settings: StateFlow<AppSettings> =
         deps.settings.settings.stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
 
+    private val _panel = MutableStateFlow(ReaderPanel.NONE)
+
+    /** The open navigation panel. Closed by default: a closed panel holds no state and does no work. */
+    val panel: StateFlow<ReaderPanel> = _panel.asStateFlow()
+
+    private val _outline = MutableStateFlow<OutlineState>(OutlineState.NotLoaded)
+    val outline: StateFlow<OutlineState> = _outline.asStateFlow()
+
+    private val _tocExpanded = MutableStateFlow<Set<Int>>(emptySet())
+
+    /** Ids of the table-of-contents sections currently expanded (see [TocModel]). */
+    val tocExpanded: StateFlow<Set<Int>> = _tocExpanded.asStateFlow()
+
+    private val _thumbnails = MutableStateFlow<ThumbnailLoader?>(null)
+
+    /** Exists only while the pages panel is open. */
+    val thumbnails: StateFlow<ThumbnailLoader?> = _thumbnails.asStateFlow()
+
+    /** Jump history and the transient back/forward hint. */
+    val navigation = ReaderNavigation()
+
     private val events = Channel<ReaderEvent>(Channel.BUFFERED)
     val eventFlow: Flow<ReaderEvent> = events.receiveAsFlow()
 
@@ -152,6 +192,14 @@ class ReaderViewModel(
     private var pipeline: RenderPipeline? = null
     private var externalCopy: File? = null
     private var lastSaved: SavedReadingPosition? = null
+
+    /** Page labels already asked for (`null` = the page has none). Main thread only. */
+    private val pageLabels = HashMap<Int, String?>()
+
+    /** Links of recently visible pages (weight 1 each). Thread-safe: read by tap handling. */
+    private val linkCache = WeightedLruCache<Int, List<LinkRegion>>(LINK_CACHE_PAGES, { _, _ -> 1L })
+    private val linkJobs = HashMap<Int, Job>()
+    private var visiblePages: IntRange? = null
 
     /** The screen is not visible (ON_STOP or left the composition): nothing renders or measures. */
     private var stopped = false
@@ -243,7 +291,7 @@ class ReaderViewModel(
         } catch (e: CancellationException) {
             throw e
         } catch (e: PdfOpenException.PasswordRequired) {
-            if (Build.VERSION.SDK_INT >= PASSWORD_MIN_SDK) {
+            if (deps.engine.supportsPasswords) {
                 _state.value = ReaderUiState.PasswordRequired(wrongPassword = password != null)
             } else {
                 fail(ReaderError.PASSWORD_PROTECTED)
@@ -474,6 +522,7 @@ class ReaderViewModel(
     }
 
     fun onPositionChanged(position: ViewportPosition) {
+        navigation.onPosition(position.top)
         if (documentId == null) return
         val p = SavedReadingPosition(
             page = position.top.page,
@@ -494,6 +543,8 @@ class ReaderViewModel(
         stopped = false
         pipeline?.resume()
         startMeasuring()
+        _thumbnails.value?.resume()
+        visiblePages?.let(::fetchLinks)
     }
 
     /**
@@ -511,6 +562,159 @@ class ReaderViewModel(
         stopped = true
         pipeline?.pause()
         stopMeasuring()
+        // Energy: no thumbnail or link work while invisible; thumbnail bitmaps are released too.
+        _thumbnails.value?.pause()
+        cancelLinkJobs()
+    }
+
+    // --- Navigation panels -------------------------------------------------------------------
+
+    /** Opens [panel] (or closes any when [ReaderPanel.NONE]). Work starts only now, never before. */
+    fun openPanel(panel: ReaderPanel) {
+        if (panel == ReaderPanel.NONE) return closePanel()
+        if (document == null) return
+        _panel.value = panel
+        when (panel) {
+            ReaderPanel.CONTENTS -> {
+                releaseThumbnails()
+                loadOutline()
+            }
+            ReaderPanel.PAGES -> startThumbnails()
+            ReaderPanel.NONE -> Unit
+        }
+    }
+
+    /** Closes the panel and cancels/releases everything it was doing (thumbnail renders and bitmaps). */
+    fun closePanel() {
+        _panel.value = ReaderPanel.NONE
+        releaseThumbnails()
+    }
+
+    /** Loads the outline once, off the main thread; safe to call repeatedly. */
+    private fun loadOutline() {
+        if (_outline.value !is OutlineState.NotLoaded) return
+        val doc = document ?: return
+        _outline.value = OutlineState.Loading
+        viewModelScope.launch {
+            val model = try {
+                val items = doc.outline()
+                withContext(Dispatchers.Default) { TocModel.from(items) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                TocModel.Empty // a broken outline is the same as none
+            }
+            _outline.value = OutlineState.Loaded(model)
+        }
+    }
+
+    fun toggleTocSection(id: Int) {
+        val current = _tocExpanded.value
+        _tocExpanded.value = if (id in current) current - id else current + id
+    }
+
+    /** Expands the sections above [nodeId] so it is visible (the panel opens at the current section). */
+    fun revealTocNode(nodeId: Int) {
+        val model = (_outline.value as? OutlineState.Loaded)?.model ?: return
+        val current = _tocExpanded.value
+        val revealed = model.expandedToReveal(nodeId, current)
+        if (revealed !== current) _tocExpanded.value = revealed
+    }
+
+    private fun startThumbnails() {
+        if (_thumbnails.value != null) return
+        val doc = document ?: return
+        val pipeline = pipeline ?: return
+        val density = app.resources.displayMetrics.density
+        val widthPx = (THUMBNAIL_WIDTH_DP * density).roundToInt().coerceIn(1, ThumbnailLoader.MAX_WIDTH_PX)
+        val loader = ThumbnailLoader(
+            document = doc,
+            pageCount = doc.pageCount,
+            widthPx = widthPx,
+            aspectOf = ::pageAspect,
+            viewportBusy = pipeline.isBusy,
+            scope = viewModelScope,
+            // Small, and never more than a quarter of what the viewport itself may cache.
+            budgetBytes = min(THUMBNAIL_CACHE_BYTES, pipeline.budget.cacheBytes / 4),
+        )
+        if (stopped) loader.pause()
+        _thumbnails.value = loader
+    }
+
+    private fun releaseThumbnails() {
+        _thumbnails.value?.close()
+        _thumbnails.value = null
+    }
+
+    /** Height / width of [page] from the (possibly still estimated) page sizes. */
+    private fun pageAspect(page: Int): Float {
+        val sizes = _pageSizes.value ?: return 0f
+        if (page !in 0 until sizes.count) return 0f
+        val w = sizes.widths[page]
+        return if (w > 0f) sizes.heights[page] / w else 0f
+    }
+
+    // --- Page labels ---------------------------------------------------------------------------
+
+    /** The printed label of [page] if it was already looked up (`null`: none or not yet known). */
+    fun cachedPageLabel(page: Int): String? = pageLabels[page]
+
+    /** The printed label of [page] ("iv"), or `null` when the document defines none. Cached. */
+    suspend fun pageLabel(page: Int): String? {
+        if (pageLabels.containsKey(page)) return pageLabels[page]
+        val doc = document ?: return null
+        val label = try {
+            doc.pageLabel(page)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+        pageLabels[page] = label
+        return label
+    }
+
+    // --- Links ---------------------------------------------------------------------------------
+
+    /** Links of [page] if already fetched (never blocks; tap handling needs an immediate answer). */
+    fun linkRegions(page: Int): List<LinkRegion>? = linkCache.peek(page)
+
+    /** The viewport now shows [pages]: fetch the links of those pages lazily. */
+    fun onVisiblePagesChanged(pages: IntRange) {
+        if (pages == visiblePages) return
+        visiblePages = pages
+        fetchLinks(pages)
+    }
+
+    private fun fetchLinks(pages: IntRange) {
+        val doc = document ?: return
+        if (stopped || !doc.capabilities.links) return
+        // Pages that scrolled away lose their pending fetch.
+        val stale = linkJobs.filter { (page, job) -> page !in pages || !job.isActive }.keys.toList()
+        for (page in stale) linkJobs.remove(page)?.cancel()
+        for (page in pages.first..min(pages.last, pages.first + MAX_LINK_PAGES - 1)) {
+            if (page in linkCache || linkJobs.containsKey(page)) continue
+            linkJobs[page] = viewModelScope.launch {
+                try {
+                    // Like thumbnails: wait for the viewport's renders instead of queueing before them.
+                    pipeline?.isBusy?.first { busy -> !busy }
+                    val regions = LinkHits.regionsOf(doc.links(page))
+                    linkCache.put(page, regions)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    linkCache.put(page, emptyList()) // do not retry a page whose links fail to load
+                } finally {
+                    linkJobs.remove(page, currentCoroutineContext()[Job])
+                }
+            }
+        }
+    }
+
+    private fun cancelLinkJobs() {
+        val jobs = linkJobs.values.toList()
+        linkJobs.clear()
+        jobs.forEach { it.cancel() }
     }
 
     fun addToLibrary() {
@@ -525,6 +729,7 @@ class ReaderViewModel(
 
     override fun onCleared() {
         val cookie = PerfTrace.begin(PerfTrace.CLOSE_DOCUMENT)
+        releaseThumbnails()
         pipeline?.close()
         pipeline = null
         val doc = document
@@ -553,12 +758,13 @@ class ReaderViewModel(
 
     private companion object {
         const val CHUNK = 16
+        const val THUMBNAIL_WIDTH_DP = 128
+        const val THUMBNAIL_CACHE_BYTES = 12L * 1024 * 1024
+        const val LINK_CACHE_PAGES = 12L
+        const val MAX_LINK_PAGES = 6
         const val PUBLISH_EVERY = 256
         const val COPY_BUFFER_BYTES = 256 * 1024
         const val EXTERNAL_DIR = "external"
         const val STALE_COPY_MILLIS = 24L * 60 * 60 * 1000
-
-        /** The framework engine accepts a password from API 35 (PdfRenderer LoadParams). */
-        const val PASSWORD_MIN_SDK = 35
     }
 }

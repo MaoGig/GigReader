@@ -98,15 +98,25 @@ class RenderPlanner(
      * lower width so no base bitmap exceeds [MAX_BASE_HEIGHT_PX] or [MAX_BASE_BYTES]: the canvas
      * refuses to draw huge bitmaps, and tiles restore sharpness where the base is too coarse.
      */
-    fun baseKey(layout: DocumentLayout, page: Int): PageKey {
-        val aspect = layout.pageAspect(page)
-        var w = baseWidthPx(layout).toFloat()
+    fun baseKey(layout: DocumentLayout, page: Int): PageKey =
+        baseKey(page, baseWidthPx(layout), layout.pageAspect(page))
+
+    private fun baseKey(page: Int, baseWidth: Int, aspect: Float): PageKey {
+        var w = baseWidth.toFloat()
         if (w * aspect > MAX_BASE_HEIGHT_PX) w = MAX_BASE_HEIGHT_PX / aspect
         if (w * w * aspect * 4f > MAX_BASE_BYTES) w = sqrt(MAX_BASE_BYTES / 4f / aspect)
         val width = max(1, w.toInt())
         val height = max(1, (width * aspect).roundToInt())
         return PageKey(page, width, height)
     }
+
+    /** Base bitmap for [page] of any reading mode: fitted page width, capped like the continuous one. */
+    fun baseKey(layout: ReadingLayout, page: Int): PageKey =
+        baseKey(page, min(maxBaseWidthPx, max(1, layout.pageWidth(page).roundToInt())), layout.pageAspect(page))
+
+    /** Whether [page]'s base bitmap is sharp enough at [zoom] in any reading mode. */
+    fun needsTiles(layout: ReadingLayout, page: Int, zoom: Float): Boolean =
+        zoom * layout.pageWidth(page) > baseKey(layout, page).widthPx * tileThreshold
 
     /** Whether [page]'s base bitmap is sharp enough at [zoom], or tiles are needed on top of it. */
     fun needsTiles(layout: DocumentLayout, page: Int, zoom: Float): Boolean =
@@ -193,6 +203,94 @@ class RenderPlanner(
             dx * dx + dy * dy
         }
         return RenderPlan(pages, tiles, prefetch)
+    }
+
+    /**
+     * Plan for any [ReadingMode]. Continuous layouts delegate to the [DocumentLayout] overload
+     * unchanged. In the paged modes the visible pages are those of the units on screen (two units
+     * while a swipe is in flight), and [prefetchPages] counts *units*: the pages of the adjacent
+     * units are prefetched, next before previous.
+     */
+    fun plan(
+        layout: ReadingLayout,
+        transform: ViewportTransform,
+        includeTiles: Boolean = true,
+    ): RenderPlan {
+        if (layout is ContinuousReadingLayout) {
+            return plan(layout.document, transform, layout.viewportWidth, layout.viewportHeight, includeTiles)
+        }
+        val viewportWidth = layout.viewportWidth
+        val viewportHeight = layout.viewportHeight
+        if (layout.pageCount == 0 || viewportWidth <= 0f || viewportHeight <= 0f) return RenderPlan.Empty
+        val visible = DocRect(
+            transform.offsetX,
+            transform.offsetY,
+            transform.offsetX + viewportWidth / transform.zoom,
+            transform.offsetY + viewportHeight / transform.zoom,
+        )
+        val centerX = (visible.left + visible.right) / 2f
+        val centerY = (visible.top + visible.bottom) / 2f
+        val visiblePages = ArrayList<Int>()
+        for (p in layout.pagesIn(visible)) {
+            if (layout.pageTop(p) < visible.bottom && layout.pageTop(p) + layout.pageHeight(p) > visible.top) visiblePages.add(p)
+        }
+        val prefetchOrder = ArrayList<Int>()
+        if (visiblePages.isNotEmpty()) {
+            visiblePages.sortBy { p ->
+                val dx = layout.pageLeft(p) + layout.pageWidth(p) / 2f - centerX
+                val dy = layout.pageTop(p) + layout.pageHeight(p) / 2f - centerY
+                dx * dx + dy * dy
+            }
+            val firstUnit = layout.unitOfPage(visiblePages.min())
+            val lastUnit = layout.unitOfPage(visiblePages.max())
+            for (d in 1..prefetchPages) {
+                if (lastUnit + d < layout.unitCount) addUnitPages(layout, lastUnit + d, prefetchOrder)
+                if (firstUnit - d >= 0) addUnitPages(layout, firstUnit - d, prefetchOrder)
+            }
+        } else {
+            addUnitPages(layout, layout.unitAt(centerX, centerY), prefetchOrder)
+        }
+        val pages = visiblePages.map { baseKey(layout, it) }
+        val prefetch = prefetchOrder.map { baseKey(layout, it) }
+        if (!includeTiles || visiblePages.isEmpty()) return RenderPlan(pages, emptyList(), prefetch)
+
+        val bucket = ZoomBuckets.bucketFor(transform.zoom)
+        val scale = ZoomBuckets.scale(bucket)
+        val tiles = ArrayList<TileKey>()
+        for (page in visiblePages) {
+            if (!needsTiles(layout, page, transform.zoom)) continue
+            val pageLeft = layout.pageLeft(page)
+            val pageTop = layout.pageTop(page)
+            val pageRect = DocRect(pageLeft, pageTop, pageLeft + layout.pageWidth(page), pageTop + layout.pageHeight(page))
+            val area = visible.intersect(pageRect)
+            if (area.isEmpty) continue
+            val pageWidthPx = max(1, (layout.pageWidth(page) * scale).roundToInt())
+            val pageHeightPx = max(1, (pageWidthPx * layout.pageAspect(page)).roundToInt())
+            val left = (area.left - pageLeft) * scale
+            val top = (area.top - pageTop) * scale
+            val right = (area.right - pageLeft) * scale
+            val bottom = (area.bottom - pageTop) * scale
+            val colStart = max(0, floor(left / tileSize).toInt())
+            val rowStart = max(0, floor(top / tileSize).toInt())
+            val colEnd = min((pageWidthPx - 1) / tileSize, floor((right - 0.001f) / tileSize).toInt())
+            val rowEnd = min((pageHeightPx - 1) / tileSize, floor((bottom - 0.001f) / tileSize).toInt())
+            for (row in rowStart..rowEnd) {
+                for (col in colStart..colEnd) {
+                    tiles.add(TileKey(page, bucket, col, row, tileSize, pageWidthPx, pageHeightPx))
+                }
+            }
+        }
+        tiles.sortBy { tile ->
+            val dx = layout.pageLeft(tile.page) + (tile.left + tile.right) / 2f / scale - centerX
+            val dy = layout.pageTop(tile.page) + (tile.top + tile.bottom) / 2f / scale - centerY
+            dx * dx + dy * dy
+        }
+        return RenderPlan(pages, tiles, prefetch)
+    }
+
+    private fun addUnitPages(layout: ReadingLayout, unit: Int, out: MutableList<Int>) {
+        if (unit < 0) return
+        for (p in layout.firstPageOfUnit(unit)..layout.lastPageOfUnit(unit)) out.add(p)
     }
 
     private fun pageCenter(layout: DocumentLayout, page: Int): Float = layout.pageTop(page) + layout.pageHeight(page) / 2f

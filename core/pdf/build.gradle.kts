@@ -29,6 +29,8 @@ dependencies {
     implementation(libs.androidx.core)
     api(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
+    // MuPDF (AGPL-3.0; docs/PDF_ENGINE_COMPARISON.md). Ships the native libraries for all four ABIs.
+    implementation(libs.mupdf.fitz)
 
     testImplementation(libs.kotlin.test.junit)
     testImplementation(libs.junit)

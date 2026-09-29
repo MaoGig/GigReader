@@ -396,7 +396,7 @@ private fun GoToPageDialog(pageCount: Int, onGo: (Int) -> Unit, onDismiss: () ->
 }
 
 /**
- * Asks for the password of an encrypted PDF (API 35+). The text is kept only in memory (never in
+ * Asks for the password of an encrypted PDF. The text is kept only in memory (never in
  * saved state) and leaves with the dialog; a wrong password shows [wrongPassword] and asks again.
  */
 @Composable

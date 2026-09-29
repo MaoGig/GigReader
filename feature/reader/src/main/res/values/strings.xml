@@ -16,7 +16,7 @@
     <string name="reader_error_not_found_title">Document not found</string>
     <string name="reader_error_not_found">This document is no longer in your library.</string>
     <string name="reader_error_file_missing">The file for this document is missing from the device.</string>
-    <string name="reader_error_password">For now, opening password-protected PDFs requires Android 15 or later.</string>
+    <string name="reader_error_password">This PDF is password-protected, and this device\'s PDF engine cannot open protected files.</string>
     <string name="reader_error_corrupted">The document may be corrupted or use an unsupported PDF feature.</string>
     <string name="reader_error_unreadable">The file could not be read. It may have been moved, or the app that shared it no longer allows access.</string>
     <string name="reader_error_memory">There is not enough memory to open this document right now. Close other apps and try again.</string>
@@ -28,4 +28,27 @@
     <string name="reader_password_label">Password</string>
     <string name="reader_password_wrong">Incorrect password. Try again.</string>
     <string name="reader_password_open">Open</string>
+    <string name="reader_contents">Contents</string>
+    <string name="reader_pages">Pages</string>
+    <string name="reader_panel_close">Close panel</string>
+    <string name="reader_panel_tabs">Navigation panel</string>
+    <string name="reader_toc_loading">Loading contents</string>
+    <string name="reader_toc_empty_title">No table of contents</string>
+    <string name="reader_toc_empty_message">This document does not define chapters or bookmarks. Use the Pages tab to browse it visually.</string>
+    <string name="reader_toc_untitled">Untitled section</string>
+    <string name="reader_toc_expand">Expand section</string>
+    <string name="reader_toc_collapse">Collapse section</string>
+    <string name="reader_toc_current">Current section</string>
+    <string name="reader_page_current">Current page</string>
+    <string name="reader_toc_item_description">%1$s, page %2$d</string>
+    <string name="reader_thumbnail_labeled">Page %1$d of %2$d, labeled %3$s</string>
+    <string name="reader_page_indicator_labeled">%1$s (%2$d / %3$d)</string>
+    <string name="reader_history_back">Back to p. %1$s</string>
+    <string name="reader_history_forward">Forward to p. %1$s</string>
+    <string name="reader_menu_history_back">Back to previous position</string>
+    <string name="reader_menu_history_forward">Forward to next position</string>
+    <string name="reader_link_title">Open link?</string>
+    <string name="reader_link_message">This document wants to open a link outside the app:</string>
+    <string name="reader_link_open">Open</string>
+    <string name="reader_link_no_app">No app can open this link.</string>
 </resources>

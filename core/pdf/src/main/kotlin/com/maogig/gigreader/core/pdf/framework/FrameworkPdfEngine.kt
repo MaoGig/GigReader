@@ -38,6 +38,9 @@ class FrameworkPdfEngine(
 ) : PdfEngine {
     override val id: String = "framework"
 
+    /** PdfRenderer accepts a password from API 35 (LoadParams). */
+    override val supportsPasswords: Boolean get() = Build.VERSION.SDK_INT >= 35
+
     // The file is opened on the engine lane too (one cheap syscall), so there is a single hop whose
     // result can be discarded by cancellation; see [openOnLane].
     override suspend fun open(file: File, password: String?): PdfDocument = openOnLane(onNotStarted = {}) {
