@@ -45,9 +45,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -136,6 +138,8 @@ private fun SettingsScreen(
     onOpenDiagnostics: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
+    var showLicenses by rememberSaveable { mutableStateOf(false) }
+    if (showLicenses) LicensesDialog(onDismiss = { showLicenses = false })
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -175,6 +179,7 @@ private fun SettingsScreen(
                         versionName = versionName,
                         onAction = onAction,
                         onOpenDiagnostics = onOpenDiagnostics,
+                        onOpenLicenses = { showLicenses = true },
                     )
                 }
             }
@@ -187,6 +192,7 @@ private fun LazyListScope.settingsItems(
     versionName: String?,
     onAction: (SettingsAction) -> Unit,
     onOpenDiagnostics: (() -> Unit)?,
+    onOpenLicenses: () -> Unit,
 ) {
     // Appearance
     sectionHeader(key = "header_appearance", title = R.string.settings_section_appearance)
@@ -293,6 +299,13 @@ private fun LazyListScope.settingsItems(
         InfoRow(
             title = stringResource(R.string.settings_version),
             value = versionName ?: stringResource(R.string.settings_version_unknown),
+        )
+    }
+    item(key = "licenses", contentType = TYPE_NAVIGATION) {
+        NavigationRow(
+            title = stringResource(R.string.settings_licenses),
+            summary = stringResource(R.string.settings_licenses_summary),
+            onClick = onOpenLicenses,
         )
     }
     if (onOpenDiagnostics != null) {

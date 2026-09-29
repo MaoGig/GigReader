@@ -90,8 +90,20 @@ class RenderPipeline(
     @Volatile
     private var wanted: Set<RenderKey> = emptySet()
 
-    @Volatile
-    private var busy = false
+    private val _busy = MutableStateFlow(false)
+
+    /**
+     * `true` while the worker is rendering (or deciding what to render). Lets lower-priority users of
+     * the same engine (thumbnails) wait for idle instead of polling; conflated, so a burst of quick
+     * drains costs collectors nothing.
+     */
+    val isBusy: StateFlow<Boolean> = _busy.asStateFlow()
+
+    private var busy: Boolean
+        get() = _busy.value
+        set(value) {
+            _busy.value = value
+        }
 
     @Volatile
     private var closed = false

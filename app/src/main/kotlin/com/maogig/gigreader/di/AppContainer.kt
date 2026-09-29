@@ -19,8 +19,10 @@ import com.maogig.gigreader.core.data.settings.DataStoreSettingsRepository
 import com.maogig.gigreader.core.data.settings.SettingsRepository
 import com.maogig.gigreader.core.database.GigReaderDatabase
 import com.maogig.gigreader.core.model.AppSettings
+import com.maogig.gigreader.core.pdf.FallbackPdfEngine
 import com.maogig.gigreader.core.pdf.engine.PdfEngine
 import com.maogig.gigreader.core.pdf.framework.FrameworkPdfEngine
+import com.maogig.gigreader.core.pdf.mupdf.MuPdfEngine
 import com.maogig.gigreader.core.pdf.render.RenderDiagnostics
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -46,7 +48,13 @@ class AppContainer(private val app: Application) {
 
     val coverStore: CoverStore by lazy { CoverStore(File(app.cacheDir, "covers")) }
 
-    val pdfEngine: PdfEngine by lazy { FrameworkPdfEngine() }
+    private val mupdfDelegate = lazy { MuPdfEngine() }
+
+    /**
+     * MuPDF, or the framework renderer if MuPDF's native library cannot load (decided on the first
+     * `open`; `pdfEngine.id` tells which one is active). Neither loads anything until first use.
+     */
+    val pdfEngine: PdfEngine by lazy { FallbackPdfEngine(primary = mupdfDelegate.value, fallback = FrameworkPdfEngine()) }
 
     val libraryRepository: LibraryRepository by lazy { LocalLibraryRepository(database, fileStore, coverStore) }
 
@@ -94,5 +102,8 @@ class AppContainer(private val app: Application) {
             if (coverDelegate.isInitialized()) coverRepository.trimMemory()
             RenderDiagnostics.trimAll()
         }
+        // MuPDF's resource store (fonts, images, glyphs) lives in native memory; its policy decides how
+        // much to drop per level (UI hidden: half; critical/background: all). Never loads the library.
+        if (mupdfDelegate.isInitialized()) mupdfDelegate.value.trimMemory(level)
     }
 }

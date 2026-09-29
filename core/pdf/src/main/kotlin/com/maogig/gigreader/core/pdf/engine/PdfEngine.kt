@@ -7,15 +7,21 @@ import java.io.File
 
 /**
  * Engine-agnostic PDF access. The reader, thumbnails, import validation and (later) search and
- * annotation export only talk to this interface, so the backend (framework PdfRenderer today, a
- * bundled PDFium binding next; see docs/PDF_ENGINE_COMPARISON.md) can change without touching UI.
+ * annotation export only talk to this interface, so the backend (bundled MuPDF, with the framework
+ * PdfRenderer as fallback; see docs/PDF_ENGINE_COMPARISON.md) can change without touching UI.
  *
  * Threading contract: every method is `suspend` and main-safe. Implementations serialize access to
  * the native document internally and never block the caller's thread.
  */
 interface PdfEngine {
-    /** Stable identifier used in diagnostics ("framework", "pdfium"). */
+    /** Stable identifier used in diagnostics ("framework", "mupdf"). */
     val id: String
+
+    /**
+     * Whether a password passed to `open` is honoured. When `false` an encrypted PDF fails with
+     * [PdfOpenException.PasswordRequired] whatever the password, so the UI must not ask for one.
+     */
+    val supportsPasswords: Boolean get() = false
 
     /** Opens a local file. Throws [PdfOpenException]. */
     suspend fun open(file: File, password: String? = null): PdfDocument
@@ -60,7 +66,28 @@ class RenderJob(
 /** A text match on one page; rectangles are normalized (0..1) page coordinates, one per line. */
 data class TextMatch(val page: Int, val rects: List<android.graphics.RectF>, val textStartIndex: Int)
 
-data class OutlineItem(val title: String, val page: Int, val children: List<OutlineItem>)
+/**
+ * One table-of-contents entry. [page] is -1 when the entry has no resolvable destination (it is still
+ * shown, as a non-clickable heading). [yFraction] is the destination's vertical position on the page
+ * (0 = top .. 1 = bottom) when the document specifies one.
+ */
+data class OutlineItem(
+    val title: String,
+    val page: Int,
+    val children: List<OutlineItem>,
+    val yFraction: Float? = null,
+)
+
+/** A tappable link area; [bounds] is in normalized (0..1) page coordinates. */
+sealed interface PageLink {
+    val bounds: android.graphics.RectF
+
+    /** Jump inside the document. [yFraction]: vertical target on the page, if the link has one. */
+    data class Internal(override val bounds: android.graphics.RectF, val page: Int, val yFraction: Float?) : PageLink
+
+    /** Web or mail link; opened only after the user confirms. */
+    data class External(override val bounds: android.graphics.RectF, val uri: String) : PageLink
+}
 
 interface PdfDocument {
     val pageCount: Int
@@ -83,7 +110,14 @@ interface PdfDocument {
     /** Case- and accent-insensitive search on one page; empty if [EngineCapabilities.textSearch] is false. */
     suspend fun searchPage(page: Int, query: String): List<TextMatch> = emptyList()
 
+    /** Table of contents; empty if [EngineCapabilities.outline] is false or the document has none. */
     suspend fun outline(): List<OutlineItem> = emptyList()
+
+    /** Links on one page; empty if [EngineCapabilities.links] is false. */
+    suspend fun links(page: Int): List<PageLink> = emptyList()
+
+    /** The printed page label (e.g. "iv", "A-3"), or `null` when the document defines none. */
+    suspend fun pageLabel(page: Int): String? = null
 
     /** Releases native resources. Further calls throw [IllegalStateException]. Idempotent. */
     suspend fun close()

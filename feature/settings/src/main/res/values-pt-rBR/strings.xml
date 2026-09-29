@@ -55,6 +55,19 @@
     <string name="settings_section_about">Sobre</string>
     <string name="settings_version">Versão</string>
     <string name="settings_version_unknown">Desconhecida</string>
+    <string name="settings_licenses">Licenças de código aberto</string>
+    <string name="settings_licenses_summary">MuPDF (AGPL-3.0) e outras bibliotecas</string>
+    <string name="settings_licenses_title">Licenças de código aberto</string>
+    <string name="settings_licenses_close">Fechar</string>
+    <string name="settings_licenses_mupdf_name">MuPDF</string>
+    <string name="settings_licenses_mupdf_license">Artifex Software, Inc. · GNU AGPL-3.0</string>
+    <string name="settings_licenses_mupdf_description">O GigReader usa o MuPDF para exibir e pesquisar arquivos PDF. O MuPDF é software livre sob a GNU Affero General Public License, versão 3.</string>
+    <string name="settings_licenses_mupdf_website">Site do MuPDF (mupdf.com)</string>
+    <string name="settings_licenses_agpl_text">Texto da licença GNU AGPL-3.0</string>
+    <string name="settings_licenses_others_name">AndroidX, Jetpack Compose, Material, Kotlin</string>
+    <string name="settings_licenses_others_license">Apache License 2.0</string>
+    <string name="settings_licenses_others_description">A interface, o armazenamento e o código em segundo plano usam estas bibliotecas do Google e da JetBrains, distribuídas sob a Apache License, versão 2.0.</string>
+    <string name="settings_licenses_apache_text">Texto da Apache License 2.0</string>
     <string name="settings_diagnostics">Diagnóstico do desenvolvedor</string>
     <string name="settings_diagnostics_summary">Memória, caches e armazenamento</string>
 </resources>

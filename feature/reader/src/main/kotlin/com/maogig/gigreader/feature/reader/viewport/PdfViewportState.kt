@@ -163,9 +163,12 @@ class PdfViewportState(
     }
 
     /** Target vertical offset that shows [page] from its top at the current zoom. */
-    fun offsetForPage(page: Int): Float? {
+    fun offsetForPage(page: Int): Float? = offsetForPosition(PagePosition(page, 0f))
+
+    /** Target vertical offset that puts [position] at the top edge at the current zoom. */
+    fun offsetForPosition(position: PagePosition): Float? {
         val l = layout ?: return null
-        return math.transformFor(PagePosition(page, 0f), transform.zoom, l, viewportWidth, viewportHeight).offsetY
+        return math.transformFor(position, transform.zoom, l, viewportWidth, viewportHeight).offsetY
     }
 
     fun goToPage(page: Int) {

@@ -47,16 +47,8 @@ class ViewportMath(
     fun visibleRect(t: ViewportTransform, viewportWidth: Float, viewportHeight: Float): DocRect =
         DocRect(t.offsetX, t.offsetY, t.offsetX + viewportWidth / t.zoom, t.offsetY + viewportHeight / t.zoom)
 
-    fun clamp(t: ViewportTransform, layout: DocumentLayout, viewportWidth: Float, viewportHeight: Float): ViewportTransform {
-        val zoom = t.zoom.coerceIn(minZoom, maxZoom)
-        val visibleW = viewportWidth / zoom
-        val visibleH = viewportHeight / zoom
-        val docW = layout.viewportWidth
-        val docH = layout.totalHeight
-        val x = if (visibleW >= docW) (docW - visibleW) / 2f else t.offsetX.coerceIn(0f, docW - visibleW)
-        val y = if (visibleH >= docH) (docH - visibleH) / 2f else t.offsetY.coerceIn(0f, docH - visibleH)
-        return if (zoom == t.zoom && x == t.offsetX && y == t.offsetY) t else ViewportTransform(zoom, x, y)
-    }
+    fun clamp(t: ViewportTransform, layout: DocumentLayout, viewportWidth: Float, viewportHeight: Float): ViewportTransform =
+        clampContinuous(t, minZoom, maxZoom, layout.viewportWidth, layout.totalHeight, viewportWidth, viewportHeight)
 
     /** Zooms to [newZoom] keeping the document point under the screen point ([focusX], [focusY]) fixed. */
     fun zoomAround(
@@ -117,4 +109,36 @@ class ViewportMath(
         val offsetY = if (position.pageOffset == 0f) y - layout.pageGap else y
         return clamp(ViewportTransform(zoom, 0f, offsetY), layout, viewportWidth, viewportHeight)
     }
+
+    // --- Mode-aware overloads: the layout owns its viewport size, see [ReadingLayout]. ---
+
+    fun clamp(t: ViewportTransform, layout: ReadingLayout): ViewportTransform = layout.clamp(t, minZoom, maxZoom)
+
+    fun zoomAround(t: ViewportTransform, newZoom: Float, focusX: Float, focusY: Float, layout: ReadingLayout): ViewportTransform {
+        val z = newZoom.coerceIn(minZoom, maxZoom)
+        val docX = t.toDocX(focusX)
+        val docY = t.toDocY(focusY)
+        return layout.clamp(ViewportTransform(z, docX - focusX / z, docY - focusY / z), minZoom, maxZoom)
+    }
+
+    fun panBy(t: ViewportTransform, dxScreen: Float, dyScreen: Float, layout: ReadingLayout): ViewportTransform =
+        layout.clamp(ViewportTransform(t.zoom, t.offsetX - dxScreen / t.zoom, t.offsetY - dyScreen / t.zoom), minZoom, maxZoom)
+}
+
+/** Shared clamp of the continuous strip: centres an axis that is smaller than the viewport. */
+internal fun clampContinuous(
+    t: ViewportTransform,
+    minZoom: Float,
+    maxZoom: Float,
+    docW: Float,
+    docH: Float,
+    viewportWidth: Float,
+    viewportHeight: Float,
+): ViewportTransform {
+    val zoom = t.zoom.coerceIn(minZoom, maxZoom)
+    val visibleW = viewportWidth / zoom
+    val visibleH = viewportHeight / zoom
+    val x = if (visibleW >= docW) (docW - visibleW) / 2f else t.offsetX.coerceIn(0f, docW - visibleW)
+    val y = if (visibleH >= docH) (docH - visibleH) / 2f else t.offsetY.coerceIn(0f, docH - visibleH)
+    return if (zoom == t.zoom && x == t.offsetX && y == t.offsetY) t else ViewportTransform(zoom, x, y)
 }

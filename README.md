@@ -10,7 +10,7 @@ e econômica em bateria.
 | Documento | Conteúdo |
 |---|---|
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Análise de requisitos, arquitetura, modelo de dados, cache, rendering, energia, navegação, módulos, riscos, MVP e plano incremental |
-| [`docs/PDF_ENGINE_COMPARISON.md`](docs/PDF_ENGINE_COMPARISON.md) | PdfRenderer × androidx.pdf × PDFium × MuPDF × outros, com pontuação ponderada e decisão |
+| [`docs/PDF_ENGINE_COMPARISON.md`](docs/PDF_ENGINE_COMPARISON.md) | PdfRenderer × androidx.pdf × PDFium × MuPDF × outros, com pontuação ponderada e a decisão final (MuPDF) |
 | [`docs/PERFORMANCE_AND_POWER.md`](docs/PERFORMANCE_AND_POWER.md) | CPU, GPU, memória, bateria, ciclo de vida, recomposição, benchmarks e metas |
 | [`docs/NOTEZIP_FORMAT.md`](docs/NOTEZIP_FORMAT.md) | Formato nativo `.gigreader` (ZIP estruturado) |
 
@@ -28,6 +28,14 @@ Coroutines/Flow · AGP 9.3 (Kotlin embutido) · Gradle 9.6 · compileSdk 37 · m
 Sem framework de DI, sem biblioteca de navegação, sem biblioteca de imagens: cada dependência está
 justificada na arquitetura.
 
+## Licença
+
+O GigReader usa o **MuPDF** (Artifex Software), licenciado sob **AGPL-3.0**. Distribuir o app com o
+MuPDF exige **liberar o código-fonte do app sob AGPL-3.0** ou **comprar uma licença comercial da
+Artifex**. Este repositório ainda não define a licença do próprio código (decisão do dono do
+produto). A tela Configurações → Licenças de código aberto lista o MuPDF e as demais bibliotecas
+(AndroidX, Kotlin: Apache-2.0). Detalhes em [`docs/PDF_ENGINE_COMPARISON.md`](docs/PDF_ENGINE_COMPARISON.md).
+
 ## Módulos
 
 ```text
@@ -36,7 +44,7 @@ core/model          [JVM] entidades, ordenação, sync, configurações
 core/common         [JVM] layout/viewport/tiles, LRU, undo, autosave, IO atômico
 core/database       Room (schema v1 com metadados de sync)
 core/data           repositórios, importação, capas, configurações
-core/pdf            PdfEngine, backend do framework, pipeline de render, caches
+core/pdf            PdfEngine, backends MuPDF (principal) e framework (fallback), pipeline de render, caches
 core/ui             tema e componentes
 feature/library     biblioteca / Home
 feature/reader      leitor

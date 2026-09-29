@@ -56,10 +56,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.maogig.gigreader.core.common.io.PageSizes
 import com.maogig.gigreader.core.common.render.DocumentLayout
+import com.maogig.gigreader.core.common.render.PagePosition
 import com.maogig.gigreader.core.common.render.RenderPlanner
 import com.maogig.gigreader.core.common.render.ViewportTransform
 import com.maogig.gigreader.core.model.ReaderPageBackground
 import com.maogig.gigreader.core.pdf.render.RenderPipeline
+import com.maogig.gigreader.feature.reader.nav.LinkHits
+import com.maogig.gigreader.feature.reader.nav.LinkRegion
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -71,6 +74,9 @@ import kotlin.math.max
 private const val DOUBLE_TAP_ZOOM = 2.5f
 private const val KEY_ZOOM_STEP = 1.25f
 private const val MAX_ANIMATED_JUMP_SCREENS = 3f
+
+/** A tap this close (dp) to a link box still hits it: fingers are bigger than link rectangles. */
+private const val LINK_TAP_SLOP_DP = 10f
 
 private data class PlanInputs(
     val layout: DocumentLayout?,
@@ -124,9 +130,12 @@ class ViewportController internal constructor(
         }
     }
 
-    fun goToPage(page: Int) {
+    fun goToPage(page: Int) = goToPosition(PagePosition(page, 0f))
+
+    /** Scrolls so that [position] (page + fraction of it) is at the top edge; animated when it is near. */
+    fun goToPosition(position: PagePosition) {
         cancel()
-        val target = state.offsetForPage(page) ?: return
+        val target = state.offsetForPosition(position) ?: return
         val start = state.transform.offsetY
         // Long jumps are instant: animating across many pages would plan (and start rendering)
         // every page flown over, only to throw that work away a frame later.
@@ -188,12 +197,20 @@ fun PdfViewport(
     onTap: () -> Unit,
     onPositionChanged: (ViewportPosition) -> Unit,
     modifier: Modifier = Modifier,
+    linkRegions: (page: Int) -> List<LinkRegion>? = { null },
+    onLinkTap: (LinkRegion) -> Unit = {},
+    onVisiblePagesChanged: (IntRange) -> Unit = {},
+    onUserScroll: () -> Unit = {},
 ) {
     val density = LocalDensity.current
     val motion = controller
     val drawer = remember { PageDrawer() }
     val currentOnTap by rememberUpdatedState(onTap)
     val currentOnPositionChanged by rememberUpdatedState(onPositionChanged)
+    val currentLinkRegions by rememberUpdatedState(linkRegions)
+    val currentOnLinkTap by rememberUpdatedState(onLinkTap)
+    val currentOnVisiblePages by rememberUpdatedState(onVisiblePagesChanged)
+    val currentOnUserScroll by rememberUpdatedState(onUserScroll)
     val focusRequester = remember { FocusRequester() }
     // Snapshot view of the pipeline's version: read only inside drawBehind, so a finished render
     // invalidates the draw phase and nothing else.
@@ -218,6 +235,7 @@ fun PdfViewport(
 
         // Render planning + position reporting: runs only when the transform/layout changes.
         LaunchedEffect(state, pipeline, planner) {
+            var lastVisible: IntRange? = null
             snapshotFlow { PlanInputs(state.layout, state.transform, state.viewportWidth, state.viewportHeight, state.isZooming) }
                 .distinctUntilChanged()
                 .collect { inputs ->
@@ -225,6 +243,13 @@ fun PdfViewport(
                     if (inputs.width <= 0f || inputs.height <= 0f) return@collect
                     pipeline.request(planner.plan(l, inputs.transform, inputs.width, inputs.height, includeTiles = !inputs.zooming))
                     currentOnPositionChanged(state.position())
+                    // Links are fetched only for pages on screen: report the range when it changes.
+                    val t = inputs.transform
+                    val visible = l.pagesIn(t.offsetY, t.offsetY + inputs.height / t.zoom)
+                    if (visible != lastVisible) {
+                        lastVisible = visible
+                        currentOnVisiblePages(visible)
+                    }
                 }
         }
 
@@ -254,11 +279,16 @@ fun PdfViewport(
                 }
                 .focusRequester(focusRequester)
                 .focusable()
-                .onKeyEvent { event -> handleKey(event, state, motion, pageCount) }
-                // Taps: single tap toggles the reader chrome, double tap toggles fit ↔ zoomed.
+                .onKeyEvent { event -> handleKey(event, state, motion, pageCount).also { if (it) currentOnUserScroll() } }
+                // Taps: a tap on a link follows it, any other single tap toggles the reader chrome;
+                // double tap toggles fit ↔ zoomed (also over a link).
                 .pointerInput(state) {
+                    val slopPx = LINK_TAP_SLOP_DP.dp.toPx()
                     detectTapGestures(
-                        onTap = { currentOnTap() },
+                        onTap = { offset ->
+                            val link = linkAt(state, offset, slopPx, currentLinkRegions)
+                            if (link != null) currentOnLinkTap(link) else currentOnTap()
+                        },
                         onDoubleTap = { offset ->
                             val target = if (state.transform.zoom < 1.5f) DOUBLE_TAP_ZOOM else 1f
                             motion.zoomTo(target, offset)
@@ -275,6 +305,7 @@ fun PdfViewport(
                             val scroll = change.scrollDelta
                             // The wheel takes over from a running fling or animated jump/zoom.
                             motion.cancel()
+                            currentOnUserScroll()
                             if (event.keyboardModifiers.isPointerCtrlPressed) {
                                 state.onZoomStart()
                                 state.zoomBy(if (scroll.y < 0f) 1.1f else 1f / 1.1f, change.position.x, change.position.y)
@@ -301,6 +332,7 @@ fun PdfViewport(
                         var panAccumulated = Offset.Zero
                         var zoomedThisGesture = false
                         var maxPointers = 1
+                        var reportedScroll = false
                         while (true) {
                             val event = awaitPointerEvent()
                             if (event.changes.any { it.isConsumed }) break
@@ -317,6 +349,10 @@ fun PdfViewport(
                                 if (zoomMotion > touchSlop || panAccumulated.getDistance() > touchSlop) pastSlop = true
                             }
                             if (pastSlop) {
+                                if (!reportedScroll) {
+                                    reportedScroll = true
+                                    currentOnUserScroll()
+                                }
                                 if (zoomChange != 1f && pressed > 1) {
                                     if (!zoomedThisGesture) state.onZoomStart()
                                     zoomedThisGesture = true
@@ -354,6 +390,22 @@ fun PdfViewport(
         )
         LaunchedEffect(focusRequester) { runCatching { focusRequester.requestFocus() } }
     }
+}
+
+/** The link under a tap at [tap] (screen px), from the already fetched regions of that page, or `null`. */
+private fun linkAt(
+    state: PdfViewportState,
+    tap: Offset,
+    slopPx: Float,
+    regionsOf: (Int) -> List<LinkRegion>?,
+): LinkRegion? {
+    val layout = state.layout ?: return null
+    val t = state.transform
+    val hit = LinkHits.pageHit(layout, t, tap.x, tap.y) ?: return null
+    val regions = regionsOf(hit.page)?.takeIf { it.isNotEmpty() } ?: return null
+    val slopX = slopPx / (layout.contentWidth * t.zoom)
+    val slopY = slopPx / (layout.pageHeight(hit.page) * t.zoom)
+    return LinkHits.find(regions, hit.x, hit.y, slopX, slopY)
 }
 
 private fun handleKey(event: KeyEvent, state: PdfViewportState, motion: ViewportController, pageCount: Int): Boolean {

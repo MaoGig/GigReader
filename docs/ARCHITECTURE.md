@@ -107,28 +107,32 @@ uso real. ViewModels recebem dependências via `viewModelFactory { initializer {
 
 ## 3. Engine de PDF (resumo — detalhes em `PDF_ENGINE_COMPARISON.md`)
 
-**Decisão: engine própria sobre PDFium** (binários pinados de `bblanchon/pdfium-binaries`, licença
-BSD-3/Apache-2.0, com camada JNI fina escrita por nós) **como engine principal**, e o
+**Decisão (dono do produto): MuPDF 1.28.5** (`com.artifex.mupdf:fitz`, licença **AGPL-3.0**,
+repositório `maven.ghostscript.com`) **como engine principal**, e o
 `android.graphics.pdf.PdfRenderer` do framework **como fallback** (tamanho zero, segurança mantida
-pelo Google via Mainline) — ambos atrás da interface `PdfEngine`.
+pelo Google via Mainline) — ambos atrás da interface `PdfEngine`. `FallbackPdfEngine` usa o MuPDF e
+passa ao framework, uma única vez, se a biblioteca nativa não carregar.
 
 Por quê:
 
 - O `PdfRenderer` do framework é PDFium, mas expõe pouco: **sem sumário (TOC), sem page labels,
   sem tamanhos de página baratos, sem caixas por caractere**, uma página aberta por vez, lock
   global, sem cancelamento; texto/busca só no API 35 (ou 31–34 com SDK extension 13) e
-  anotações só no 36.1 — inviável como base de um leitor acadêmico premium em todos os aparelhos.
+  anotações só no 36.1; senha só no API 35 — inviável como base de um leitor acadêmico premium em
+  todos os aparelhos.
 - `androidx.pdf` (1.0.0-beta01) herda essas limitações, roda em processo isolado com IPC por tile,
   não reutiliza bitmaps e ainda é beta/experimental na parte Compose.
-- MuPDF é excelente tecnicamente, mas **AGPL-3.0** (ou licença comercial paga) — incompatível com
-  um app fechado sem custo de licença.
-- Wrappers PDFium prontos (ex.: `io.legere:pdfiumandroid`) não escrevem anotações e trazem um
-  binário antigo de procedência não documentada — risco de segurança.
+- MuPDF é a engine tecnicamente mais completa (render em tiles direto no `Bitmap`, `StructuredText`
+  com quads por caractere, TOC, page labels, links, anotações com save incremental, senha em todos os
+  API levels) e ativamente mantida. Wrappers PDFium prontos (`io.legere:pdfiumandroid`) não escrevem
+  anotações e trazem binário antigo de procedência não documentada.
+- **Consequência da AGPL-3.0**: distribuir o app exige liberar o código do app inteiro sob AGPL-3.0
+  ou comprar a licença comercial da Artifex; sem SDKs proprietários incompatíveis. Aviso na tela
+  Configurações → Licenças de código aberto; nota no README. Detalhes em `PDF_ENGINE_COMPARISON.md` §4–5.
 
-**Faseamento**: a Fase 1 entrega o leitor básico sobre o backend do framework (suficiente para
-render; zero dependências nativas) com todo o pipeline engine-agnóstico (layout, tiles, caches,
-scheduler). A engine PDFium entra na Fase 2, quando texto/busca/TOC passam a ser necessários, sem
-tocar na UI.
+**Faseamento**: a Fase 1 entregou o leitor básico sobre o backend do framework com todo o pipeline
+engine-agnóstico (layout, tiles, caches, scheduler). O backend MuPDF (Fase 2) entra atrás de
+`PdfEngine` sem tocar na UI: texto/busca/TOC/links/senha em todos os API levels.
 
 ---
 
@@ -390,10 +394,10 @@ versões atuais da AndroidX já exigem minSdk 24.
 | Fase | Conteúdo | Critério de saída |
 |---|---|---|
 | **1 — Fundação** | MVP acima | CI verde; testes JVM + Room; benchmark de startup e scroll executáveis |
-| **2 — Leitor** | Engine PDFium (JNI próprio, binário pinado), miniaturas incrementais, sumário/TOC, busca no documento com destaque temporário, histórico de navegação, modo paginado e duas páginas | Abrir PDF de 1000 páginas < 500 ms até a 1ª página (aparelho médio); 0 frames > 32 ms no scroll do benchmark |
+| **2 — Leitor** | Engine MuPDF (`com.artifex.mupdf:fitz` 1.28.5, AGPL-3.0; fallback PdfRenderer), miniaturas incrementais, sumário/TOC, busca no documento com destaque temporário, histórico de navegação, modo paginado e duas páginas | Abrir PDF de 1000 páginas < 500 ms até a 1ª página (aparelho médio); 0 frames > 32 ms no scroll do benchmark |
 | **3 — Anotações** | Seleção de texto (caixas por caractere), highlight/underline/strike, nota no highlight, visão geral de páginas anotadas, painel lateral, desfazer/refazer | Highlight persistido < 16 ms na main thread; reconstrução exata após reabrir |
 | **4 — Notas** | Notas vinculadas a página, bookmarks nomeados, tags, busca global (FTS4 do SQLite do sistema — o FTS5 não vem habilitado no Android — sobre nomes, notas, highlights, bookmarks) | Busca global < 100 ms em biblioteca de 5000 itens |
-| **5 — Exportação** | PDF com anotações reais (FPDF_ANNOT_HIGHLIGHT + /Contents, save incremental), PDF achatado, formato `.gigreader`, importação do formato | Round-trip `.gigreader` sem perda (teste) |
+| **5 — Exportação** | PDF com anotações reais (MuPDF `PDFAnnotation` highlight + /Contents, save incremental do MuPDF em vez de `FPDF_*`), PDF achatado, formato `.gigreader`, importação do formato | Round-trip `.gigreader` sem perda (teste) |
 | **6 — Performance** | Baseline Profiles, ajuste de caches, perfis de energia, metas do `PERFORMANCE_AND_POWER.md` | Metas atingidas em aparelho de referência |
 | **7 — Backup** | `BackupProvider` + backup local (SAF), Google Drive preparado | Restaurar biblioteca em aparelho limpo |
 
